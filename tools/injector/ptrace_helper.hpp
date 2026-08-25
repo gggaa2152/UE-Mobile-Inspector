@@ -8,6 +8,8 @@
 #include <cstdint>
 #include <string>
 
+namespace Injector {
+
 #if defined(__aarch64__)
     struct Arm64Regs {
         uint64_t regs[31];
