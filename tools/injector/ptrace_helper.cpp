@@ -152,7 +152,7 @@ namespace Injector {
         return true;
     }
 
-    uintptr_t GetRemoteModuleBase(pid_t pid, const std::string& moduleName) {
+    uintptr_t GetRemoteModuleBase(pid_t pid, const char* moduleName) {
         char mapsPath[64];
         if (pid < 0) {
             snprintf(mapsPath, sizeof(mapsPath), "/proc/self/maps");
@@ -166,7 +166,7 @@ namespace Injector {
         char line[512];
         uintptr_t baseAddr = 0;
         while (fgets(line, sizeof(line), fp)) {
-            if (strstr(line, moduleName.c_str())) {
+            if (strstr(line, moduleName)) {
                 baseAddr = strtoul(line, nullptr, 16);
                 break;
             }
@@ -175,7 +175,7 @@ namespace Injector {
         return baseAddr;
     }
 
-    uintptr_t GetRemoteFuncAddress(pid_t pid, const std::string& moduleName, void* localFuncAddr) {
+    uintptr_t GetRemoteFuncAddress(pid_t pid, const char* moduleName, void* localFuncAddr) {
         uintptr_t localModuleBase = GetRemoteModuleBase(-1, moduleName);
         uintptr_t remoteModuleBase = GetRemoteModuleBase(pid, moduleName);
 

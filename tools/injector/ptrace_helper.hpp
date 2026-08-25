@@ -1,10 +1,6 @@
 #pragma once
 
 #include <sys/types.h>
-#include <sys/user.h>
-#include <sys/ptrace.h>
-#include <linux/ptrace.h>
-#include <asm/ptrace.h>
 #include <cstdint>
 #include <string>
 
@@ -59,8 +55,8 @@ namespace Injector {
     bool PtraceWriteBytes(pid_t pid, uintptr_t destAddr, const void* data, size_t length);
     bool PtraceReadBytes(pid_t pid, uintptr_t srcAddr, void* buffer, size_t length);
 
-    // Remote function invocation
-    uintptr_t PtraceCall(pid_t pid, uintptr_t funcAddr, uintptr_t* args, size_t argCount);
+    // Remote function invocation with trap address
+    uintptr_t PtraceCall(pid_t pid, uintptr_t funcAddr, uintptr_t* args, size_t argCount, uintptr_t trapAddr);
 
     // High-level Injection routine
     bool InjectLibrary(pid_t pid, const std::string& libraryPath);
