@@ -187,9 +187,10 @@ namespace Hook {
         // Read actual screen size from /sys
         FILE* wf = fopen("/sys/class/graphics/fb0/virtual_size", "r");
         if (wf) {
-            fscanf(wf, "%d,%d", &gOverlayWidth, &gOverlayHeight);
+            if (fscanf(wf, "%d,%d", &gOverlayWidth, &gOverlayHeight) == 2) {
+                LOGI("[VulkanHook] Screen size from fb0: %dx%d", gOverlayWidth, gOverlayHeight);
+            }
             fclose(wf);
-            LOGI("[VulkanHook] Screen size from fb0: %dx%d", gOverlayWidth, gOverlayHeight);
         }
 
         EGLint pbufferAttribs[] = {

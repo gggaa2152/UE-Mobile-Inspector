@@ -24,11 +24,12 @@ namespace ElfUtils {
             char pathBuf[256] = {0};
             char* slash = strstr(line, "/");
             if (slash) {
-                sscanf(line, "%lx", &base);
-                sscanf(slash, "%255s", pathBuf);
-                outFullPath = pathBuf;
-                fclose(fp);
-                return base;
+                if (sscanf(line, "%lx", &base) == 1 && sscanf(slash, "%255s", pathBuf) == 1) {
+                    outFullPath = pathBuf;
+                    fclose(fp);
+                    return base;
+                }
+            }
         }
         fclose(fp);
         return 0;
@@ -77,12 +78,16 @@ namespace ElfUtils {
                 size_t numSyms = sh.sh_size / sizeof(Elf64_Sym);
                 std::vector<Elf64_Sym> syms(numSyms);
                 fseek(fp, (long)sh.sh_offset, SEEK_SET);
-                fread(syms.data(), sizeof(Elf64_Sym), numSyms, fp);
+                if (fread(syms.data(), sizeof(Elf64_Sym), numSyms, fp) != numSyms) {
+                    continue;
+                }
 
                 const auto& strSh = shdrs[sh.sh_link];
                 std::vector<char> strtab(strSh.sh_size);
                 fseek(fp, (long)strSh.sh_offset, SEEK_SET);
-                fread(strtab.data(), 1, strSh.sh_size, fp);
+                if (fread(strtab.data(), 1, strSh.sh_size, fp) != strSh.sh_size) {
+                    continue;
+                }
 
                 for (size_t i = 0; i < numSyms; i++) {
                     if (syms[i].st_name < strtab.size()) {
