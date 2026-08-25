@@ -38,12 +38,16 @@ jobs:
 
       - name: Compile Java Floating Menu to DEX
         run: |
-          PLATFORM_JAR=$(find $ANDROID_HOME/platforms -name "android.jar" | sort -V | tail -n 1)
-          D8_TOOL=$(find $ANDROID_HOME/build-tools -name "d8" | sort -V | tail -n 1)
+          SDK_ROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          PLATFORM_JAR=$(find "$SDK_ROOT/platforms" -name "android.jar" 2>/dev/null | sort -V | tail -n 1)
+          D8_TOOL=$(find "$SDK_ROOT/build-tools" -name "d8" -type f 2>/dev/null | sort -V | tail -n 1)
+          echo "Using Platform JAR: $PLATFORM_JAR"
+          echo "Using D8 Tool: $D8_TOOL"
           mkdir -p bin_classes
           javac --release 8 -cp "$PLATFORM_JAR" -d bin_classes src/java/com/ue/inspector/FloatingMenu.java
-          $D8_TOOL --min-api 26 --output ./ bin_classes/com/ue/inspector/*.class
+          "$D8_TOOL" --min-api 26 --output ./ $(find bin_classes -name "*.class")
           xxd -i classes.dex > src/gui/FloatingMenu_dex.h
+          ls -la src/gui/FloatingMenu_dex.h
 
       - name: Configure CMake
         run: |
