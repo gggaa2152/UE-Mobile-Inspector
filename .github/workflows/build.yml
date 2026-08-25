@@ -72,8 +72,10 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: libUEMobileInspector-${{ matrix.abi }}
-          path: build_${{ matrix.abi }}/libUEMobileInspector.so
+          name: UEMobileInspector-${{ matrix.abi }}
+          path: |
+            build_${{ matrix.abi }}/libUEMobileInspector.so
+            build_${{ matrix.abi }}/ue_injector
 
   create-release:
     name: Create GitHub Release
@@ -84,11 +86,21 @@ jobs:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
 
+      - name: Rename and Prepare Files
+        run: |
+          mkdir -p release_assets
+          cp UEMobileInspector-arm64-v8a/libUEMobileInspector.so release_assets/libUEMobileInspector-arm64.so
+          cp UEMobileInspector-arm64-v8a/ue_injector release_assets/ue_injector-arm64
+          cp UEMobileInspector-armeabi-v7a/libUEMobileInspector.so release_assets/libUEMobileInspector-armv7.so
+          cp UEMobileInspector-armeabi-v7a/ue_injector release_assets/ue_injector-armv7
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            libUEMobileInspector-arm64-v8a/libUEMobileInspector.so
-            libUEMobileInspector-armeabi-v7a/libUEMobileInspector.so
+            release_assets/libUEMobileInspector-arm64.so
+            release_assets/ue_injector-arm64
+            release_assets/libUEMobileInspector-armv7.so
+            release_assets/ue_injector-armv7
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

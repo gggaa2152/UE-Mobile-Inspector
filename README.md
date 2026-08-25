@@ -94,8 +94,37 @@ git push -u origin main
 
 ---
 
-## 📱 使用方式 (Android)
+## 📱 使用方式 (Android 注入指南)
 
-1. 将编译生成的 `libUEMobileInspector.so` 放置到手机中（例如 `/data/local/tmp/`）。
-2. 使用注入器（如 `Zygisk` 模块、`Frida`、`Xposed` 或 root 命令行注入器）将 `.so` 注入到目标虚幻手游进程（如 `com.epicgames.portal`、`com.tencent.tmgp.pubgm` 等）。
-3. 游戏启动后，屏幕左上方会出现 `UE` 悬浮按钮，点击即可展开完整的实时对象检查器！
+### 方式 1：使用项目配套的原生注入器 (Native PTrace Injector)
+项目内置了基于 PTrace 的 Android 原生注入器 `ue_injector`：
+
+```bash
+# 1. 下载并在电脑上使用 ADB 一键推送到手机
+adb push libUEMobileInspector.so /data/local/tmp/
+adb push ue_injector /data/local/tmp/
+adb shell "su -c 'chmod 777 /data/local/tmp/libUEMobileInspector.so /data/local/tmp/ue_injector'"
+
+# 2. 注入指定包名的游戏（如三角洲行动）
+adb shell "su -c '/data/local/tmp/ue_injector -p com.tencent.tmgp.dfm'"
+
+# 或者通过 PID 注入：
+# adb shell "su -c '/data/local/tmp/ue_injector -pid 12345 -s /data/local/tmp/libUEMobileInspector.so'"
+```
+
+### 方式 2：使用一键自动化脚本 (PC 端)
+- **Windows**: 双击运行项目目录下的 `tools/inject.bat` 即可自动寻找已连接设备并注入。
+- **Python (跨平台)**: 运行 `python tools/inject.py -p com.tencent.tmgp.dfm`。
+
+### 方式 3：使用 JSHook / VirtualXposed 等框架
+在 JSHook 中选择目标游戏，在 NativeLib 框架处选中 `libUEMobileInspector.so`（选择 `arm64-v8a`），启动游戏即可自动注入。
+
+---
+
+## 🎮 游戏内使用效果
+
+1. 游戏加载后，屏幕左上方会出现 **`[UE]`** 悬浮球图标；
+2. 点击展开主面板，即可在 **浏览器 (Browser)** 中模糊搜索任意 `UClass`，点击 **Find Instances** 实时提取存活对象；
+3. 在 **检查器 (Inspector)** 中查看并就地修改对象属性（支持自动刷新、实时修改、一键 Dump 到 `/sdcard/`）；
+4. 在 **追踪 (Tracer)** 中点击 **Start Tracer** 实时拦截抓取所有 `ProcessEvent` 函数调用。
+

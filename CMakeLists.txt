@@ -60,11 +60,26 @@ target_compile_definitions(UEMobileInspector PRIVATE
     IMGUI_DISABLE_OBSOLETE_KEYIO
 )
 
-# Link Libraries
+# Link Libraries for shared library
 target_link_libraries(UEMobileInspector PRIVATE
     android
     log
     EGL
     GLESv3
     GLESv2
+)
+
+# Build Companion Injector Executable: ue_injector
+add_executable(ue_injector
+    tools/injector/main.cpp
+    tools/injector/ptrace_helper.cpp
+)
+
+target_include_directories(ue_injector PRIVATE
+    tools/injector
+)
+
+target_link_libraries(ue_injector PRIVATE
+    log
+    dl
 )
