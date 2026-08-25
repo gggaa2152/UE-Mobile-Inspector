@@ -13,6 +13,7 @@ namespace Hook {
         }
 
         bool Initialize();
+        bool IsInitialized() const { return bInitialized; }
         void Shutdown();
 
         // Hooked eglSwapBuffers callback
