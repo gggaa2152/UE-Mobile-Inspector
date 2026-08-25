@@ -2,6 +2,7 @@
 #include "imgui.h"
 #include <algorithm>
 #include <cstdlib>
+#include <cstdio>
 
 namespace GUI {
 

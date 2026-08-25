@@ -2,6 +2,8 @@
 #include "imgui.h"
 #include <iomanip>
 #include <sstream>
+#include <chrono>
+#include <ctime>
 
 namespace GUI {
 
