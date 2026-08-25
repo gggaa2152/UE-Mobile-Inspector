@@ -31,10 +31,19 @@ jobs:
           ndk-version: r25c
           add-to-path: true
 
-      - name: Install CMake & Ninja
+      - name: Install CMake, Ninja & Build Tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build
+          sudo apt-get install -y cmake ninja-build xxd
+
+      - name: Compile Java Floating Menu to DEX
+        run: |
+          PLATFORM_JAR=$(find $ANDROID_HOME/platforms -name "android.jar" | sort -V | tail -n 1)
+          D8_TOOL=$(find $ANDROID_HOME/build-tools -name "d8" | sort -V | tail -n 1)
+          mkdir -p bin_classes
+          javac -cp "$PLATFORM_JAR" -d bin_classes src/java/com/ue/inspector/FloatingMenu.java
+          $D8_TOOL --output ./ bin_classes/com/ue/inspector/*.class
+          xxd -i classes.dex > src/gui/FloatingMenu_dex.h
 
       - name: Configure CMake
         run: |
