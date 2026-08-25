@@ -6,11 +6,15 @@
 #include "core/Memory.hpp"
 #include "core/UECore.hpp"
 #include "hook/EGLHook.hpp"
+#include "gui/AndroidOverlay.hpp"
 
 static void MainThread() {
     LOGI("==========================================");
     LOGI(" %s Loaded! Initializing...", TOOL_TAG);
     LOGI("==========================================");
+
+    // 0. Initialize Android In-Window Overlay (works regardless of graphics backend)
+    GUI::AndroidOverlay::Get().Initialize();
 
     // 1. Hook EGL SwapBuffers immediately in a retry loop so the UI/floating button displays ASAP
     std::thread([]() {
@@ -55,6 +59,7 @@ void InitLibrary() {
 
 // JNI Entry point if loaded via Java System.loadLibrary
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
+    GUI::AndroidOverlay::Get().Initialize(vm);
     std::thread(MainThread).detach();
     return JNI_VERSION_1_6;
 }

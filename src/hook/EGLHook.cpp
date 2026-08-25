@@ -257,10 +257,13 @@ namespace Hook {
         // 3. Vulkan Hardware Driver vkQueuePresentKHR (Both Loader AND Hardware Driver)
         CreateVulkanEGLOverlay();
 
-        void* vkLoader = dlsym(RTLD_DEFAULT, "vkQueuePresentKHR");
-        if (vkLoader) {
-            successCount += TryHookUnique(vkLoader, reinterpret_cast<void*>(Hooked_vkQueuePresentKHR),
-                reinterpret_cast<void**>(&Orig_vkQueuePresentKHR), hookedAddrs, "libvulkan.so::vkQueuePresentKHR");
+        void* vkLib = dlopen("libvulkan.so", RTLD_NOW);
+        if (vkLib) {
+            void* vkPresent = dlsym(vkLib, "vkQueuePresentKHR");
+            if (vkPresent) {
+                successCount += TryHookUnique(vkPresent, reinterpret_cast<void*>(Hooked_vkQueuePresentKHR),
+                    reinterpret_cast<void**>(&Orig_vkQueuePresentKHR), hookedAddrs, "libvulkan.so::vkQueuePresentKHR");
+            }
         }
 
         void* vkAdreno = ElfUtils::ResolveSymbol("vulkan.adreno.so", "vkQueuePresentKHR");

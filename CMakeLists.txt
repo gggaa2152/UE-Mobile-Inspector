@@ -41,6 +41,7 @@ set(PROJECT_SOURCES
     src/core/UEPropertyReader.cpp
     src/core/ProcessEventHook.cpp
     src/gui/GUI.cpp
+    src/gui/AndroidOverlay.cpp
     src/gui/views/ClassBrowserView.cpp
     src/gui/views/ObjectInspectorView.cpp
     src/gui/views/TracerView.cpp
