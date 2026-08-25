@@ -1,4 +1,5 @@
 #include "AndroidOverlay.hpp"
+#include "config.hpp"
 #include "core/Logger.hpp"
 #include "core/UECore.hpp"
 #include "core/Memory.hpp"
