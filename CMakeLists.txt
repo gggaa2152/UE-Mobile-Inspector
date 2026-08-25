@@ -91,7 +91,7 @@ target_compile_definitions(UEMobileInspector PRIVATE
 
 # Link Libraries
 target_link_libraries(UEMobileInspector PRIVATE
-    dobby_static
+    dobby
     android
     log
     EGL
