@@ -63,10 +63,10 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git checkout -B build-logs
+          git checkout -B build-logs-${{ matrix.abi }}
           git add build_${{ matrix.abi }}.log
           git commit -m "build log for ${{ matrix.abi }}" || true
-          git push origin build-logs --force
+          git push origin build-logs-${{ matrix.abi }} --force
 
       - name: Upload Artifacts
         if: success()

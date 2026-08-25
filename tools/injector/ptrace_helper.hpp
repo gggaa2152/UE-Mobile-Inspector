@@ -8,14 +8,32 @@
 #include <cstdint>
 #include <string>
 
-namespace Injector {
+#if defined(__aarch64__)
+    struct Arm64Regs {
+        uint64_t regs[31];
+        uint64_t sp;
+        uint64_t pc;
+        uint64_t pstate;
+    };
+#elif defined(__arm__)
+    struct Arm32Regs {
+        uint32_t uregs[18];
+    };
+#ifndef ARM_r0
+#define ARM_r0 uregs[0]
+#define ARM_sp uregs[13]
+#define ARM_lr uregs[14]
+#define ARM_pc uregs[15]
+#define ARM_cpsr uregs[16]
+#endif
+#endif
 
     // Structure to hold register states across architectures
     struct Regs {
 #if defined(__aarch64__)
-        struct user_pt_regs regs;
+        Arm64Regs regs;
 #elif defined(__arm__)
-        struct pt_regs regs;
+        Arm32Regs regs;
 #endif
     };
 
