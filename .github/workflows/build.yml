@@ -53,7 +53,16 @@ jobs:
 
       - name: Build Shared Library
         run: |
-          cmake --build build_${{ matrix.abi }} --config Release -v
+          set -o pipefail
+          cmake --build build_${{ matrix.abi }} --config Release -v 2>&1 | tee build_${{ matrix.abi }}.log
+
+      - name: Output Build Summary
+        if: always()
+        run: |
+          echo "### Build Output for ${{ matrix.abi }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          tail -n 60 build_${{ matrix.abi }}.log >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4

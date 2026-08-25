@@ -3,6 +3,7 @@
 #include <chrono>
 #include <android/log.h>
 #include "config.hpp"
+#include "core/Memory.hpp"
 #include "core/UECore.hpp"
 #include "hook/EGLHook.hpp"
 
