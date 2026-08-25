@@ -2,11 +2,7 @@ name: Build UE Mobile Inspector
 
 on:
   push:
-    branches: [ main, master ]
-    tags:
-      - 'v*'
-  pull_request:
-    branches: [ main, master ]
+    branches: [ main ]
   workflow_dispatch:
 
 permissions:
@@ -14,12 +10,8 @@ permissions:
 
 jobs:
   build-android:
-    name: Build Android Native Library (ARM64 Only)
+    name: Build ARM64 Native Library & Injector
     runs-on: ubuntu-latest
-
-    strategy:
-      matrix:
-        abi: [arm64-v8a]
 
     steps:
       - name: Checkout repository
@@ -46,27 +38,27 @@ jobs:
 
       - name: Configure CMake
         run: |
-          mkdir -p build_${{ matrix.abi }}
-          cmake -B build_${{ matrix.abi }} -G Ninja \
+          mkdir -p build_arm64
+          cmake -B build_arm64 -G Ninja \
             -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
-            -DANDROID_ABI=${{ matrix.abi }} \
+            -DANDROID_ABI=arm64-v8a \
             -DANDROID_PLATFORM=android-24 \
             -DANDROID_STL=c++_shared \
             -DCMAKE_BUILD_TYPE=Release
 
       - name: Build Shared Library & Injector
         run: |
-          cmake --build build_${{ matrix.abi }} --config Release -v > build_${{ matrix.abi }}.log 2>&1
+          cmake --build build_arm64 --config Release -v > build_arm64.log 2>&1
 
       - name: Commit Log to Branch
         if: always()
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git checkout -B build-logs-${{ matrix.abi }}
-          git add build_${{ matrix.abi }}.log
-          git commit -m "build log for ${{ matrix.abi }}" || true
-          git push origin build-logs-${{ matrix.abi }} --force
+          git checkout -B build-logs-arm64
+          git add build_arm64.log
+          git commit -m "build log for arm64" || true
+          git push origin build-logs-arm64 --force
 
       - name: Upload Artifacts
         if: success()
@@ -74,23 +66,5 @@ jobs:
         with:
           name: UEMobileInspector-arm64
           path: |
-            build_${{ matrix.abi }}/libUEMobileInspector.so
-            build_${{ matrix.abi }}/ue_injector
-
-  create-release:
-    name: Create GitHub Release
-    needs: build-android
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            UEMobileInspector-arm64/libUEMobileInspector.so
-            UEMobileInspector-arm64/ue_injector
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            build_arm64/libUEMobileInspector.so
+            build_arm64/ue_injector
