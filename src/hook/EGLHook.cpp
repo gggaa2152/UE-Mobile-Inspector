@@ -22,15 +22,35 @@ namespace Hook {
     bool EGLHook::Initialize() {
         if (bInitialized) return true;
 
-        void* eglHandle = dlopen("libEGL.so", RTLD_NOW);
-        if (!eglHandle) {
-            LOGI("Failed to open libEGL.so");
-            return false;
+        void* swapAddr = nullptr;
+
+        // 1. Try RTLD_DEFAULT first
+        swapAddr = dlsym(RTLD_DEFAULT, "eglSwapBuffers");
+
+        // 2. Try libEGL.so
+        if (!swapAddr) {
+            void* eglHandle = dlopen("libEGL.so", RTLD_NOW);
+            if (eglHandle) {
+                swapAddr = dlsym(eglHandle, "eglSwapBuffers");
+            }
         }
 
-        void* swapAddr = dlsym(eglHandle, "eglSwapBuffers");
+        // 3. Try Vendor specific EGL libraries
         if (!swapAddr) {
-            LOGI("Failed to find eglSwapBuffers");
+            const char* vendorLibs[] = {
+                "libEGL_adreno.so", "libEGL_mali.so", "libGLESv2.so", "/system/lib64/libEGL.so", "/system/lib/libEGL.so"
+            };
+            for (const char* lib : vendorLibs) {
+                void* handle = dlopen(lib, RTLD_NOW);
+                if (handle) {
+                    swapAddr = dlsym(handle, "eglSwapBuffers");
+                    if (swapAddr) break;
+                }
+            }
+        }
+
+        if (!swapAddr) {
+            LOGI("Failed to resolve eglSwapBuffers address");
             return false;
         }
 
@@ -38,7 +58,7 @@ namespace Hook {
                             reinterpret_cast<void**>(&Orig_eglSwapBuffers));
 
         bInitialized = (ret == 0);
-        LOGI("eglSwapBuffers Hook Status: %s", bInitialized ? "Success" : "Failed");
+        LOGI("eglSwapBuffers Hook Status: %s at %p", bInitialized ? "Success" : "Failed", swapAddr);
         return bInitialized;
     }
 

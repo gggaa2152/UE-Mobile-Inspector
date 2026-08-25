@@ -15,22 +15,37 @@ static void MainThread() {
     LOGI(" %s Loaded! Initializing...", TOOL_TAG);
     LOGI("==========================================");
 
-    // Wait until libUE4.so and libEGL.so are fully loaded in memory
-    while (!Memory::GetModuleBase(Config::UE_SO_NAME) || !Memory::GetModuleBase("libEGL.so")) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(500));
-    }
+    // 1. Hook EGL SwapBuffers immediately in a retry loop so the UI/floating button displays ASAP
+    std::thread([]() {
+        int retries = 0;
+        while (!Hook::EGLHook::Get().Initialize() && retries++ < 120) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        }
+        LOGI("EGL Overlay hook completed with status: %d", Hook::EGLHook::Get().IsInitialized());
+    }).detach();
 
-    LOGI("Found Unreal Engine module and EGL. Hooking graphics pipeline...");
+    // 2. Scan and initialize Unreal Engine reflection engine
+    std::thread([]() {
+        const char* potentialNames[] = {
+            "libUE4.so", "libUE5.so", "libUnreal.so", "libShadowTrackerExtra.so", 
+            "libdfm.so", "libgame.so", "libmain.so", "libGVoice.so"
+        };
 
-    // 1. Hook EGL SwapBuffers to render ImGui overlay
-    if (Hook::EGLHook::Get().Initialize()) {
-        LOGI("EGL Overlay hooked successfully!");
-    }
-
-    // 2. Initialize Reflection Engine
-    if (UE::CoreManager::Get().Initialize()) {
-        LOGI("UE Reflection Engine initialized successfully!");
-    }
+        LOGI("Scanning memory for Unreal Engine modules...");
+        while (true) {
+            for (const char* name : potentialNames) {
+                if (Memory::GetModuleBase(name)) {
+                    LOGI("Detected Unreal Engine module: %s", name);
+                    Config::UE_SO_NAME = name;
+                    if (UE::CoreManager::Get().Initialize()) {
+                        LOGI("UE Reflection Engine successfully initialized for %s!", name);
+                        return;
+                    }
+                }
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+        }
+    }).detach();
 }
 
 // Android Dynamic Library Constructor
