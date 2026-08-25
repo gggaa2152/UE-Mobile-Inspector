@@ -53,7 +53,7 @@ jobs:
 
       - name: Build Shared Library
         run: |
-          cmake --build build_${{ matrix.abi }} --config Release
+          cmake --build build_${{ matrix.abi }} --config Release -v
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
