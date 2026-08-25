@@ -1,17 +1,14 @@
 #include "EGLHook.hpp"
 #include "HookManager.hpp"
 #include "GUI.hpp"
+#include "core/Logger.hpp"
 #include "imgui.h"
 #include "imgui_impl_opengl3.h"
 #include <dlfcn.h>
-#include <android/log.h>
 #include <vector>
 #include <string>
 #include <cstdio>
 #include <GLES3/gl3.h>
-
-#define LOG_TAG "UE-Mobile-Inspector"
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 
 namespace Hook {
 
@@ -21,7 +18,15 @@ namespace Hook {
     using eglGetProcAddress_t = void* (*)(const char*);
     static eglGetProcAddress_t Orig_eglGetProcAddress = nullptr;
 
+    static uint64_t gFrameCounter = 0;
+
     static EGLBoolean Hooked_eglSwapBuffers(EGLDisplay dpy, EGLSurface surface) {
+        gFrameCounter++;
+        if (gFrameCounter == 1 || gFrameCounter % 300 == 0) {
+            LOGI("[EGLHook] Frame #%llu Render Loop Active (Display: %p, Surface: %p)", 
+                 (unsigned long long)gFrameCounter, dpy, surface);
+        }
+
         EGLHook::Get().OnSwapBuffers(dpy, surface);
         return Orig_eglSwapBuffers ? Orig_eglSwapBuffers(dpy, surface) : EGL_TRUE;
     }
@@ -40,12 +45,18 @@ namespace Hook {
 
         // 1. Resolve from RTLD_DEFAULT & libEGL.so
         void* defaultSwap = dlsym(RTLD_DEFAULT, "eglSwapBuffers");
-        if (defaultSwap) targetAddrs.push_back(defaultSwap);
+        if (defaultSwap) {
+            targetAddrs.push_back(defaultSwap);
+            LOGI("[EGLHook] Resolved default eglSwapBuffers at: %p", defaultSwap);
+        }
 
         void* eglHandle = dlopen("libEGL.so", RTLD_NOW);
         if (eglHandle) {
             void* swap = dlsym(eglHandle, "eglSwapBuffers");
-            if (swap) targetAddrs.push_back(swap);
+            if (swap) {
+                targetAddrs.push_back(swap);
+                LOGI("[EGLHook] Resolved libEGL.so eglSwapBuffers at: %p", swap);
+            }
         }
 
         // 2. Scan /proc/self/maps for all active GPU driver libraries (Adreno, Mali, GLES, Vulkan)
@@ -70,9 +81,15 @@ namespace Hook {
                             if (!h) h = dlopen(cleanPath, RTLD_NOW);
                             if (h) {
                                 void* fn = dlsym(h, "eglSwapBuffers");
-                                if (fn) targetAddrs.push_back(fn);
+                                if (fn) {
+                                    targetAddrs.push_back(fn);
+                                    LOGI("[EGLHook] Found Driver eglSwapBuffers in %s at %p", cleanPath, fn);
+                                }
                                 void* fnDamage = dlsym(h, "eglSwapBuffersWithDamageKHR");
-                                if (fnDamage) targetAddrs.push_back(fnDamage);
+                                if (fnDamage) {
+                                    targetAddrs.push_back(fnDamage);
+                                    LOGI("[EGLHook] Found Driver eglSwapBuffersWithDamageKHR in %s at %p", cleanPath, fnDamage);
+                                }
                             }
                         }
                     }
@@ -85,6 +102,7 @@ namespace Hook {
         void* gpa = dlsym(RTLD_DEFAULT, "eglGetProcAddress");
         if (gpa) {
             DobbyHook(gpa, reinterpret_cast<void*>(Hooked_eglGetProcAddress), reinterpret_cast<void**>(&Orig_eglGetProcAddress));
+            LOGI("[EGLHook] Hooked eglGetProcAddress at %p", gpa);
         }
 
         // 4. Hook all resolved SwapBuffers functions
@@ -98,7 +116,7 @@ namespace Hook {
                     Orig_eglSwapBuffers = reinterpret_cast<eglSwapBuffers_t>(orig);
                 }
                 successCount++;
-                LOGI("Hooked SwapBuffers presentation at %p", addr);
+                LOGI("[EGLHook] Successfully hooked SwapBuffers at %p (orig=%p)", addr, orig);
             }
         }
 
@@ -130,7 +148,9 @@ namespace Hook {
                 GUI::MainGUI::Get().Initialize();
 
                 bImGuiInitialized = true;
-                LOGI(">>> ImGui successfully initialized on Screen (%dx%d)! <<<", ScreenWidth, ScreenHeight);
+                LOGI("[EGLHook] >>> ImGui Overlay Initialized on Screen (%dx%d)! <<<", ScreenWidth, ScreenHeight);
+            } else {
+                LOGI("[EGLHook] eglQuerySurface returned invalid dimensions: %dx%d", ScreenWidth, ScreenHeight);
             }
         }
 

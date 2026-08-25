@@ -193,10 +193,30 @@ int main(int argc, char** argv) {
     if (success) {
         printf("\n====================================================\n");
         printf(" >>> INJECTION SUCCESSFUL! <<<\n");
-        printf(" Look at your phone screen: the [UE] floating icon\n");
-        printf(" is now active on the top-left corner.\n");
-        printf(" (Logs written to: /sdcard/ue_inspector.log)\n");
         printf("====================================================\n");
+        printf("[*] Waiting for in-game initialization logs...\n");
+        sleep(2);
+
+        // Read and display in-game initialization logs directly on screen
+        const char* logPaths[] = { "/data/1/ue_inspector.log", "/sdcard/ue_inspector.log" };
+        bool printedLogs = false;
+        for (const char* lp : logPaths) {
+            FILE* lfp = fopen(lp, "rt");
+            if (lfp) {
+                printf("\n--- [In-Game Log Output: %s] ---\n", lp);
+                char line[512];
+                while (fgets(line, sizeof(line), lfp)) {
+                    printf("%s", line);
+                }
+                fclose(lfp);
+                printf("--------------------------------------------------\n\n");
+                printedLogs = true;
+                break;
+            }
+        }
+        if (!printedLogs) {
+            printf("[*] Note: In-game logs will be continuously written to: /sdcard/ue_inspector.log\n");
+        }
         return 0;
     } else {
         printf("\n[-] Injection failed. Check Root permissions and SELinux (setenforce 0).\n");

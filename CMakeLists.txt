@@ -35,6 +35,7 @@ set(IMGUI_SOURCES
 # Core & Feature Sources
 set(PROJECT_SOURCES
     src/main.cpp
+    src/core/Logger.cpp
     src/core/Memory.cpp
     src/core/UECore.cpp
     src/core/UEPropertyReader.cpp

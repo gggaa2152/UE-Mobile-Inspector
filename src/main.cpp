@@ -1,41 +1,11 @@
 #include <jni.h>
 #include <thread>
 #include <chrono>
-#include <cstdio>
-#include <cstdarg>
-#include <android/log.h>
 #include "config.hpp"
+#include "core/Logger.hpp"
 #include "core/Memory.hpp"
 #include "core/UECore.hpp"
 #include "hook/EGLHook.hpp"
-
-#define LOG_TAG "UE-Mobile-Inspector"
-
-static void FileLog(const char* fmt, ...) {
-    char buf[1024];
-    va_list args;
-    va_start(args, fmt);
-    vsnprintf(buf, sizeof(buf), fmt, args);
-    va_end(args);
-
-    __android_log_print(ANDROID_LOG_INFO, LOG_TAG, "%s", buf);
-
-    // Also write to log files for easy verification
-    const char* logPaths[] = { 
-        "/sdcard/ue_inspector.log", 
-        "/data/1/ue_inspector.log", 
-        "/data/local/tmp/ue_inspector.log" 
-    };
-    for (const char* path : logPaths) {
-        FILE* fp = fopen(path, "a+");
-        if (fp) {
-            fprintf(fp, "[UE-Mobile-Inspector] %s\n", buf);
-            fflush(fp);
-            fclose(fp);
-        }
-    }
-}
-#define LOGI(...) FileLog(__VA_ARGS__)
 
 static void MainThread() {
     LOGI("==========================================");
@@ -45,11 +15,12 @@ static void MainThread() {
     // 1. Hook EGL SwapBuffers immediately in a retry loop so the UI/floating button displays ASAP
     std::thread([]() {
         int retries = 0;
-        LOGI("Starting EGL SwapBuffers hook loop...");
+        LOGI("Starting Graphics Presentation (EGL/GLES) hook loop...");
         while (!Hook::EGLHook::Get().Initialize() && retries++ < 120) {
             std::this_thread::sleep_for(std::chrono::milliseconds(500));
         }
-        LOGI("EGL Overlay hook completed with status: %d", Hook::EGLHook::Get().IsInitialized());
+        LOGI("Graphics Hook Status: %s (after %d attempts)", 
+             Hook::EGLHook::Get().IsInitialized() ? "SUCCESS" : "RETRYING", retries);
     }).detach();
 
     // 2. Scan and initialize Unreal Engine reflection engine
