@@ -65,9 +65,9 @@ namespace GUI {
     }
 
     static JNINativeMethod gNativeMethods[] = {
-        { "nativeGetUEInfo", "()Ljava/lang/String;", (void*)Native_GetUEInfo },
-        { "nativeGetObjectsList", "(Ljava/lang/String;)Ljava/lang/String;", (void*)Native_GetObjectsList },
-        { "nativeDumpSDK", "()Ljava/lang/String;", (void*)Native_DumpSDK },
+        { const_cast<char*>("nativeGetUEInfo"), const_cast<char*>("()Ljava/lang/String;"), (void*)Native_GetUEInfo },
+        { const_cast<char*>("nativeGetObjectsList"), const_cast<char*>("(Ljava/lang/String;)Ljava/lang/String;"), (void*)Native_GetObjectsList },
+        { const_cast<char*>("nativeDumpSDK"), const_cast<char*>("()Ljava/lang/String;"), (void*)Native_DumpSDK },
     };
 
     bool AndroidOverlay::Initialize(JavaVM* vm) {

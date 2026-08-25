@@ -41,8 +41,8 @@ jobs:
           PLATFORM_JAR=$(find $ANDROID_HOME/platforms -name "android.jar" | sort -V | tail -n 1)
           D8_TOOL=$(find $ANDROID_HOME/build-tools -name "d8" | sort -V | tail -n 1)
           mkdir -p bin_classes
-          javac -cp "$PLATFORM_JAR" -d bin_classes src/java/com/ue/inspector/FloatingMenu.java
-          $D8_TOOL --output ./ bin_classes/com/ue/inspector/*.class
+          javac --release 8 -cp "$PLATFORM_JAR" -d bin_classes src/java/com/ue/inspector/FloatingMenu.java
+          $D8_TOOL --min-api 26 --output ./ bin_classes/com/ue/inspector/*.class
           xxd -i classes.dex > src/gui/FloatingMenu_dex.h
 
       - name: Configure CMake
