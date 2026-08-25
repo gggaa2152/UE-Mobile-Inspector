@@ -14,12 +14,12 @@ permissions:
 
 jobs:
   build-android:
-    name: Build Android Native Library (ARM64 / ARMv7)
+    name: Build Android Native Library (ARM64 Only)
     runs-on: ubuntu-latest
 
     strategy:
       matrix:
-        abi: [arm64-v8a, armeabi-v7a]
+        abi: [arm64-v8a]
 
     steps:
       - name: Checkout repository
@@ -54,7 +54,7 @@ jobs:
             -DANDROID_STL=c++_shared \
             -DCMAKE_BUILD_TYPE=Release
 
-      - name: Build Shared Library
+      - name: Build Shared Library & Injector
         run: |
           cmake --build build_${{ matrix.abi }} --config Release -v > build_${{ matrix.abi }}.log 2>&1
 
@@ -72,7 +72,7 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: UEMobileInspector-${{ matrix.abi }}
+          name: UEMobileInspector-arm64
           path: |
             build_${{ matrix.abi }}/libUEMobileInspector.so
             build_${{ matrix.abi }}/ue_injector
@@ -86,21 +86,11 @@ jobs:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
 
-      - name: Rename and Prepare Files
-        run: |
-          mkdir -p release_assets
-          cp UEMobileInspector-arm64-v8a/libUEMobileInspector.so release_assets/libUEMobileInspector-arm64.so
-          cp UEMobileInspector-arm64-v8a/ue_injector release_assets/ue_injector-arm64
-          cp UEMobileInspector-armeabi-v7a/libUEMobileInspector.so release_assets/libUEMobileInspector-armv7.so
-          cp UEMobileInspector-armeabi-v7a/ue_injector release_assets/ue_injector-armv7
-
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            release_assets/libUEMobileInspector-arm64.so
-            release_assets/ue_injector-arm64
-            release_assets/libUEMobileInspector-armv7.so
-            release_assets/ue_injector-armv7
+            UEMobileInspector-arm64/libUEMobileInspector.so
+            UEMobileInspector-arm64/ue_injector
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
