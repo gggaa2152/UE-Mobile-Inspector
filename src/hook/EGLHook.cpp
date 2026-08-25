@@ -29,8 +29,8 @@ namespace Hook {
 
     static void DoRender(EGLDisplay dpy, EGLSurface surface) {
         uint64_t frame = gFrameCounter.fetch_add(1) + 1;
-        if (frame == 1 || frame == 10 || frame == 100 || frame % 1000 == 0) {
-            LOGI("[EGLHook] Frame #%llu SwapBuffers called (dpy=%p, surf=%p)", 
+        if (frame == 1 || frame == 10 || frame == 100 || frame % 600 == 0) {
+            LOGI("[EGLHook] Frame #%llu Active (Display: %p, Surface: %p)", 
                  (unsigned long long)frame, dpy, surface);
         }
         EGLHook::Get().OnSwapBuffers(dpy, surface);
@@ -48,40 +48,44 @@ namespace Hook {
         return EGL_TRUE;
     }
 
+    // ===================== ANativeWindow Post Hook =====================
+    using ANativeWindow_unlockAndPost_t = int32_t (*)(ANativeWindow*);
+    static ANativeWindow_unlockAndPost_t Orig_ANativeWindow_unlockAndPost = nullptr;
+
+    static int32_t Hooked_ANativeWindow_unlockAndPost(ANativeWindow* window) {
+        uint64_t frame = gFrameCounter.fetch_add(1) + 1;
+        if (frame == 1 || frame % 600 == 0) {
+            LOGI("[NativeWindowHook] Frame #%llu unlockAndPost (Window: %p)", (unsigned long long)frame, window);
+        }
+        if (Orig_ANativeWindow_unlockAndPost) return Orig_ANativeWindow_unlockAndPost(window);
+        return 0;
+    }
+
     // ===================== Vulkan Present Hook =====================
-    // Minimal Vulkan types (no Vulkan headers needed)
     typedef uint32_t VkResult;
     typedef void* VkQueue;
     struct VkPresentInfoKHR_Minimal {
         uint32_t sType;
         const void* pNext;
-        // ... rest doesn't matter for our hook
     };
 
     using vkQueuePresentKHR_t = VkResult (*)(VkQueue, const VkPresentInfoKHR_Minimal*);
     static vkQueuePresentKHR_t Orig_vkQueuePresentKHR = nullptr;
     static std::atomic<uint64_t> gVkFrameCounter{0};
-    static std::atomic<bool> gVulkanDetected{false};
 
-    // Independent EGL overlay state for Vulkan games
     static EGLDisplay gOverlayDpy = EGL_NO_DISPLAY;
     static EGLSurface gOverlaySurf = EGL_NO_SURFACE;
     static EGLContext gOverlayCtx = EGL_NO_CONTEXT;
     static bool gOverlayImGuiInit = false;
-    static int gOverlayWidth = 0;
-    static int gOverlayHeight = 0;
+    static int gOverlayWidth = 2400;
+    static int gOverlayHeight = 1080;
 
     static VkResult Hooked_vkQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR_Minimal* pPresentInfo) {
         uint64_t frame = gVkFrameCounter.fetch_add(1) + 1;
-        if (frame == 1) {
-            gVulkanDetected.store(true);
-            LOGI("[VulkanHook] >>> Vulkan rendering CONFIRMED! Frame #1 vkQueuePresentKHR called <<<");
-        }
-        if (frame == 10 || frame == 100 || frame % 1000 == 0) {
-            LOGI("[VulkanHook] Frame #%llu vkQueuePresentKHR (queue=%p)", (unsigned long long)frame, queue);
+        if (frame == 1 || frame == 10 || frame % 600 == 0) {
+            LOGI("[VulkanHook] Frame #%llu vkQueuePresentKHR (Queue: %p)", (unsigned long long)frame, queue);
         }
 
-        // Render overlay using independent EGL context
         if (gOverlayCtx != EGL_NO_CONTEXT) {
             EGLContext prevCtx = eglGetCurrentContext();
             EGLDisplay prevDpy = eglGetCurrentDisplay();
@@ -98,7 +102,7 @@ namespace Hook {
                 ImGui_ImplOpenGL3_Init("#version 300 es");
                 GUI::MainGUI::Get().Initialize();
                 gOverlayImGuiInit = true;
-                LOGI("[VulkanHook] ImGui overlay initialized on EGL PBuffer (%dx%d)", gOverlayWidth, gOverlayHeight);
+                LOGI("[VulkanHook] >>> ImGui Overlay initialized on Vulkan Frame (%dx%d)! <<<", gOverlayWidth, gOverlayHeight);
             }
 
             ImGuiIO& io = ImGui::GetIO();
@@ -113,7 +117,6 @@ namespace Hook {
             ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
             eglSwapBuffers(gOverlayDpy, gOverlaySurf);
 
-            // Restore previous context
             if (prevCtx != EGL_NO_CONTEXT) {
                 eglMakeCurrent(prevDpy, prevDraw, prevRead, prevCtx);
             } else {
@@ -121,7 +124,41 @@ namespace Hook {
             }
         }
 
-        return Orig_vkQueuePresentKHR(queue, pPresentInfo);
+        if (Orig_vkQueuePresentKHR) return Orig_vkQueuePresentKHR(queue, pPresentInfo);
+        return 0;
+    }
+
+    // ===================== Proc Address Interceptors =====================
+    using eglGetProcAddress_t = void* (*)(const char*);
+    static eglGetProcAddress_t Orig_eglGetProcAddress = nullptr;
+
+    static void* Hooked_eglGetProcAddress(const char* procname) {
+        if (procname) {
+            if (strcmp(procname, "eglSwapBuffers") == 0) {
+                LOGI("[ProcInterceptor] Intercepted eglGetProcAddress('eglSwapBuffers')");
+                return reinterpret_cast<void*>(Hooked_eglSwapBuffers);
+            }
+            if (strcmp(procname, "eglSwapBuffersWithDamageKHR") == 0 || strcmp(procname, "eglSwapBuffersWithDamageEXT") == 0) {
+                LOGI("[ProcInterceptor] Intercepted eglGetProcAddress('%s')", procname);
+                return reinterpret_cast<void*>(Hooked_eglSwapBuffersWithDamageKHR);
+            }
+        }
+        return Orig_eglGetProcAddress ? Orig_eglGetProcAddress(procname) : nullptr;
+    }
+
+    using vkGetDeviceProcAddr_t = void* (*)(void*, const char*);
+    static vkGetDeviceProcAddr_t Orig_vkGetDeviceProcAddr = nullptr;
+
+    static void* Hooked_vkGetDeviceProcAddr(void* device, const char* pName) {
+        if (pName && strcmp(pName, "vkQueuePresentKHR") == 0) {
+            LOGI("[ProcInterceptor] Intercepted vkGetDeviceProcAddr('vkQueuePresentKHR')");
+            void* real = Orig_vkGetDeviceProcAddr ? Orig_vkGetDeviceProcAddr(device, pName) : nullptr;
+            if (real && !Orig_vkQueuePresentKHR) {
+                Orig_vkQueuePresentKHR = reinterpret_cast<vkQueuePresentKHR_t>(real);
+            }
+            return reinterpret_cast<void*>(Hooked_vkQueuePresentKHR);
+        }
+        return Orig_vkGetDeviceProcAddr ? Orig_vkGetDeviceProcAddr(device, pName) : nullptr;
     }
 
     // ===================== Unique Hook Helper =====================
@@ -130,7 +167,6 @@ namespace Hook {
         if (!addr) return 0;
         for (void* a : hookedAddrs) {
             if (a == addr) {
-                LOGI("[EGLHook] Skipping duplicate address %p (%s)", addr, desc);
                 return 0;
             }
         }
@@ -139,52 +175,31 @@ namespace Hook {
         if (ret == 0) {
             hookedAddrs.push_back(addr);
             if (origOut && !*origOut && orig) *origOut = orig;
-            LOGI("[EGLHook] SUCCESS: Hooked %s at %p -> trampoline %p", desc, addr, orig);
+            LOGI("[GraphicsHook] SUCCESS: Hooked %s at %p -> trampoline %p", desc, addr, orig);
             return 1;
         } else {
-            LOGI("[EGLHook] FAILED: Could not hook %s at %p (ret=%d)", desc, addr, ret);
+            LOGI("[GraphicsHook] FAILED: Could not hook %s at %p (ret=%d)", desc, addr, ret);
             return 0;
         }
     }
 
-    // ===================== EGL Overlay for Vulkan =====================
     static void CreateVulkanEGLOverlay() {
-        LOGI("[VulkanHook] Creating independent EGL overlay for Vulkan game...");
-        
+        if (gOverlayCtx != EGL_NO_CONTEXT) return;
         gOverlayDpy = eglGetDisplay(EGL_DEFAULT_DISPLAY);
-        if (gOverlayDpy == EGL_NO_DISPLAY) {
-            LOGI("[VulkanHook] FAILED: eglGetDisplay returned EGL_NO_DISPLAY");
-            return;
-        }
-        
+        if (gOverlayDpy == EGL_NO_DISPLAY) return;
         EGLint major, minor;
-        if (!eglInitialize(gOverlayDpy, &major, &minor)) {
-            LOGI("[VulkanHook] FAILED: eglInitialize failed");
-            return;
-        }
-        LOGI("[VulkanHook] EGL %d.%d initialized", major, minor);
+        if (!eglInitialize(gOverlayDpy, &major, &minor)) return;
 
         EGLint configAttribs[] = {
             EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,
             EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT,
-            EGL_RED_SIZE, 8,
-            EGL_GREEN_SIZE, 8,
-            EGL_BLUE_SIZE, 8,
-            EGL_ALPHA_SIZE, 8,
+            EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_BLUE_SIZE, 8, EGL_ALPHA_SIZE, 8,
             EGL_NONE
         };
         EGLConfig config;
         EGLint numConfigs;
-        if (!eglChooseConfig(gOverlayDpy, configAttribs, &config, 1, &numConfigs) || numConfigs == 0) {
-            LOGI("[VulkanHook] FAILED: eglChooseConfig failed");
-            return;
-        }
+        if (!eglChooseConfig(gOverlayDpy, configAttribs, &config, 1, &numConfigs) || numConfigs == 0) return;
 
-        // Try to get screen dimensions
-        gOverlayWidth = 2400;
-        gOverlayHeight = 1080;
-        
-        // Read actual screen size from /sys
         FILE* wf = fopen("/sys/class/graphics/fb0/virtual_size", "r");
         if (wf) {
             if (fscanf(wf, "%d,%d", &gOverlayWidth, &gOverlayHeight) == 2) {
@@ -193,158 +208,106 @@ namespace Hook {
             fclose(wf);
         }
 
-        EGLint pbufferAttribs[] = {
-            EGL_WIDTH, gOverlayWidth,
-            EGL_HEIGHT, gOverlayHeight,
-            EGL_NONE
-        };
+        EGLint pbufferAttribs[] = { EGL_WIDTH, gOverlayWidth, EGL_HEIGHT, gOverlayHeight, EGL_NONE };
         gOverlaySurf = eglCreatePbufferSurface(gOverlayDpy, config, pbufferAttribs);
-        if (gOverlaySurf == EGL_NO_SURFACE) {
-            LOGI("[VulkanHook] FAILED: eglCreatePbufferSurface failed (err=0x%x)", eglGetError());
-            return;
-        }
+        if (gOverlaySurf == EGL_NO_SURFACE) return;
 
         EGLint contextAttribs[] = { EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE };
         gOverlayCtx = eglCreateContext(gOverlayDpy, config, EGL_NO_CONTEXT, contextAttribs);
-        if (gOverlayCtx == EGL_NO_CONTEXT) {
-            LOGI("[VulkanHook] FAILED: eglCreateContext failed (err=0x%x)", eglGetError());
-            return;
+        if (gOverlayCtx != EGL_NO_CONTEXT) {
+            LOGI("[VulkanHook] Independent EGL Overlay context created successfully (%dx%d)", gOverlayWidth, gOverlayHeight);
         }
-
-        LOGI("[VulkanHook] EGL overlay context created successfully (PBuffer %dx%d)", gOverlayWidth, gOverlayHeight);
     }
 
-    // ===================== Main Initialize =====================
     bool EGLHook::Initialize() {
         if (bInitialized) return true;
 
-        LOGI("[EGLHook] === Starting comprehensive graphics hook initialization ===");
+        LOGI("[GraphicsHook] === Starting universal presentation hooks ===");
 
         std::vector<void*> hookedAddrs;
         int successCount = 0;
 
-        // ======== 1. Standard dlsym hooks ========
+        // 1. EGL swap buffers in RTLD_DEFAULT & libEGL.so
         void* defaultSwap = dlsym(RTLD_DEFAULT, "eglSwapBuffers");
-        LOGI("[EGLHook] dlsym(RTLD_DEFAULT, eglSwapBuffers) = %p", defaultSwap);
-        successCount += TryHookUnique(defaultSwap, 
-            reinterpret_cast<void*>(Hooked_eglSwapBuffers),
+        successCount += TryHookUnique(defaultSwap, reinterpret_cast<void*>(Hooked_eglSwapBuffers),
             reinterpret_cast<void**>(&Orig_eglSwapBuffers), hookedAddrs, "RTLD_DEFAULT::eglSwapBuffers");
 
         void* eglHandle = dlopen("libEGL.so", RTLD_NOW);
         if (eglHandle) {
             void* swap = dlsym(eglHandle, "eglSwapBuffers");
-            LOGI("[EGLHook] dlsym(libEGL.so, eglSwapBuffers) = %p", swap);
-            successCount += TryHookUnique(swap,
-                reinterpret_cast<void*>(Hooked_eglSwapBuffers),
+            successCount += TryHookUnique(swap, reinterpret_cast<void*>(Hooked_eglSwapBuffers),
                 reinterpret_cast<void**>(&Orig_eglSwapBuffers), hookedAddrs, "libEGL.so::eglSwapBuffers");
-
             void* swapDmg = dlsym(eglHandle, "eglSwapBuffersWithDamageKHR");
-            successCount += TryHookUnique(swapDmg,
-                reinterpret_cast<void*>(Hooked_eglSwapBuffersWithDamageKHR),
+            successCount += TryHookUnique(swapDmg, reinterpret_cast<void*>(Hooked_eglSwapBuffersWithDamageKHR),
                 reinterpret_cast<void**>(&Orig_eglSwapBuffersWithDamageKHR), hookedAddrs, "libEGL.so::eglSwapBuffersWithDamageKHR");
         }
 
-        // ======== 2. Manual ELF resolution for vendor drivers (bypass namespace) ========
-        const char* vendorDrivers[] = {
-            "libEGL_adreno.so",
-            "libGLESv2_adreno.so",
-            "libGLESv1_CM_adreno.so",
-            "libmali.so",
-            "libGLES_mali.so",
-            "egl.cfg",
-        };
-        const char* vendorSymbols[] = {
-            "eglSwapBuffers",
-            "eglSwapBuffersWithDamageKHR",
-            "eglSwapBuffersWithDamageEXT",
-        };
-
-        LOGI("[EGLHook] === Manual ELF resolution for vendor GPU drivers ===");
+        // 2. Hardware Vendor Drivers (Adreno / Mali) via direct safe ELF resolution
+        const char* vendorDrivers[] = { "libEGL_adreno.so", "libGLESv2_adreno.so", "libGLESv1_CM_adreno.so", "libmali.so" };
         for (const char* drv : vendorDrivers) {
-            uintptr_t drvBase = ElfUtils::FindModuleBase(drv);
-            if (!drvBase) continue;
-            LOGI("[EGLHook] Found vendor driver %s at base 0x%lx", drv, (unsigned long)drvBase);
-
-            for (const char* sym : vendorSymbols) {
-                void* addr = ElfUtils::ResolveSymbol(drv, sym);
-                if (addr) {
-                    char desc[256];
-                    snprintf(desc, sizeof(desc), "ELF:%s::%s", drv, sym);
-                    
-                    bool isSwapDamage = (strstr(sym, "Damage") != nullptr);
-                    if (isSwapDamage) {
-                        successCount += TryHookUnique(addr,
-                            reinterpret_cast<void*>(Hooked_eglSwapBuffersWithDamageKHR),
-                            reinterpret_cast<void**>(&Orig_eglSwapBuffersWithDamageKHR), hookedAddrs, desc);
-                    } else {
-                        successCount += TryHookUnique(addr,
-                            reinterpret_cast<void*>(Hooked_eglSwapBuffers),
-                            reinterpret_cast<void**>(&Orig_eglSwapBuffers), hookedAddrs, desc);
-                    }
-                }
+            void* addr = ElfUtils::ResolveSymbol(drv, "eglSwapBuffers");
+            if (addr) {
+                char desc[128];
+                snprintf(desc, sizeof(desc), "ELF:%s::eglSwapBuffers", drv);
+                successCount += TryHookUnique(addr, reinterpret_cast<void*>(Hooked_eglSwapBuffers),
+                    reinterpret_cast<void**>(&Orig_eglSwapBuffers), hookedAddrs, desc);
             }
         }
 
-        // ======== 3. Vulkan vkQueuePresentKHR hook ========
-        LOGI("[EGLHook] === Vulkan detection ===");
-        void* vkPresent = nullptr;
+        // 3. Vulkan Hardware Driver vkQueuePresentKHR (Both Loader AND Hardware Driver)
+        CreateVulkanEGLOverlay();
 
-        // Try dlsym first
-        void* vkHandle = dlopen("libvulkan.so", RTLD_NOW);
-        if (vkHandle) {
-            vkPresent = dlsym(vkHandle, "vkQueuePresentKHR");
-            LOGI("[EGLHook] dlsym(libvulkan.so, vkQueuePresentKHR) = %p", vkPresent);
-        }
-        // Fallback: manual ELF
-        if (!vkPresent) {
-            vkPresent = ElfUtils::ResolveSymbol("libvulkan.so", "vkQueuePresentKHR");
-            LOGI("[EGLHook] ELF resolve(libvulkan.so, vkQueuePresentKHR) = %p", vkPresent);
-        }
-        // Try vendor Vulkan
-        if (!vkPresent) {
-            vkPresent = ElfUtils::ResolveSymbol("vulkan.adreno.so", "vkQueuePresentKHR");
-            LOGI("[EGLHook] ELF resolve(vulkan.adreno.so, vkQueuePresentKHR) = %p", vkPresent);
+        void* vkLoader = dlsym(RTLD_DEFAULT, "vkQueuePresentKHR");
+        if (vkLoader) {
+            successCount += TryHookUnique(vkLoader, reinterpret_cast<void*>(Hooked_vkQueuePresentKHR),
+                reinterpret_cast<void**>(&Orig_vkQueuePresentKHR), hookedAddrs, "libvulkan.so::vkQueuePresentKHR");
         }
 
-        if (vkPresent) {
-            // Create EGL overlay BEFORE hooking (so it's ready when first frame arrives)
-            CreateVulkanEGLOverlay();
-
-            void* orig = nullptr;
-            int ret = DobbyHook(vkPresent, reinterpret_cast<void*>(Hooked_vkQueuePresentKHR), &orig);
-            if (ret == 0) {
-                Orig_vkQueuePresentKHR = reinterpret_cast<vkQueuePresentKHR_t>(orig);
-                successCount++;
-                LOGI("[EGLHook] SUCCESS: Hooked vkQueuePresentKHR at %p", vkPresent);
-            } else {
-                LOGI("[EGLHook] FAILED: Could not hook vkQueuePresentKHR at %p (ret=%d)", vkPresent, ret);
-            }
-        } else {
-            LOGI("[EGLHook] vkQueuePresentKHR not found (game may not use Vulkan)");
+        void* vkAdreno = ElfUtils::ResolveSymbol("vulkan.adreno.so", "vkQueuePresentKHR");
+        if (vkAdreno) {
+            successCount += TryHookUnique(vkAdreno, reinterpret_cast<void*>(Hooked_vkQueuePresentKHR),
+                reinterpret_cast<void**>(&Orig_vkQueuePresentKHR), hookedAddrs, "vulkan.adreno.so::vkQueuePresentKHR");
         }
 
-        LOGI("[EGLHook] === Hook initialization complete: %d total hooks installed ===", successCount);
+        // 4. ANativeWindow_unlockAndPost (System Display Submission)
+        void* nwPost = dlsym(RTLD_DEFAULT, "ANativeWindow_unlockAndPost");
+        if (!nwPost) {
+            void* androidLib = dlopen("libandroid.so", RTLD_NOW);
+            if (androidLib) nwPost = dlsym(androidLib, "ANativeWindow_unlockAndPost");
+        }
+        if (nwPost) {
+            successCount += TryHookUnique(nwPost, reinterpret_cast<void*>(Hooked_ANativeWindow_unlockAndPost),
+                reinterpret_cast<void**>(&Orig_ANativeWindow_unlockAndPost), hookedAddrs, "libandroid.so::ANativeWindow_unlockAndPost");
+        }
 
-        // ======== 4. Watchdog ========
+        // 5. Dynamic Proc Address Query Interceptors
+        void* gpa = dlsym(RTLD_DEFAULT, "eglGetProcAddress");
+        if (gpa) {
+            successCount += TryHookUnique(gpa, reinterpret_cast<void*>(Hooked_eglGetProcAddress),
+                reinterpret_cast<void**>(&Orig_eglGetProcAddress), hookedAddrs, "eglGetProcAddress");
+        }
+
+        void* gda = dlsym(RTLD_DEFAULT, "vkGetDeviceProcAddr");
+        if (gda) {
+            successCount += TryHookUnique(gda, reinterpret_cast<void*>(Hooked_vkGetDeviceProcAddr),
+                reinterpret_cast<void**>(&Orig_vkGetDeviceProcAddr), hookedAddrs, "vkGetDeviceProcAddr");
+        }
+
+        LOGI("[GraphicsHook] === All %d presentation hooks installed successfully ===", successCount);
+
+        // 6. Watchdog diagnostics
         std::thread([this]() {
             std::this_thread::sleep_for(std::chrono::seconds(5));
             uint64_t eglFrames = gFrameCounter.load();
             uint64_t vkFrames = gVkFrameCounter.load();
-            LOGI("[Watchdog] === 5-second diagnostics ===");
-            LOGI("[Watchdog] EGL frames: %llu", (unsigned long long)eglFrames);
-            LOGI("[Watchdog] Vulkan frames: %llu", (unsigned long long)vkFrames);
-            if (eglFrames == 0 && vkFrames == 0) {
-                LOGI("[Watchdog] *** ZERO frames from BOTH EGL and Vulkan! ***");
-                LOGI("[Watchdog] *** The game may use a non-standard rendering path ***");
-            } else if (vkFrames > 0 && eglFrames == 0) {
-                LOGI("[Watchdog] >>> Game confirmed VULKAN rendering <<<");
-            } else if (eglFrames > 0) {
-                LOGI("[Watchdog] >>> Game confirmed EGL/GLES rendering <<<");
-            }
+            LOGI("[Watchdog] === 5-Second Frame Count Diagnostic ===");
+            LOGI("[Watchdog] Total EGL/NativeWindow Frames: %llu", (unsigned long long)eglFrames);
+            LOGI("[Watchdog] Total Vulkan Frames: %llu", (unsigned long long)vkFrames);
+            if (eglFrames > 0) LOGI("[Watchdog] >>> Active Presentation Pipeline: EGL/OpenGL ES <<<");
+            if (vkFrames > 0) LOGI("[Watchdog] >>> Active Presentation Pipeline: Vulkan <<<");
         }).detach();
 
         bInitialized = (successCount > 0);
-        LOGI("[EGLHook] Initialize() returning %s", bInitialized ? "true" : "false");
         return bInitialized;
     }
 
