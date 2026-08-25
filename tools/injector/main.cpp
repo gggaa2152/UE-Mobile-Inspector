@@ -2,6 +2,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <unistd.h>
 #include <dirent.h>
 #include <sys/stat.h>
@@ -164,21 +165,41 @@ int main(int argc, char** argv) {
     remove("/sdcard/ue_inspector.log");
     remove("/data/local/tmp/ue_inspector.log");
 
-    // Setup app sandbox fallback paths to bypass Android 10-15 Linker Namespace restrictions
+    // *** Use unique timestamped filename to force dlopen to ALWAYS reload fresh ***
+    // This prevents the bug where dlopen returns an existing handle (stale old code)
+    // without re-running the constructor when injecting into an already-injected process.
+    long ts = (long)time(nullptr);
+
     std::vector<std::string> candidatePaths;
     if (targetDesc.find('.') != std::string::npos) {
-        std::string appDir1 = "/data/data/" + targetDesc + "/libUEMobileInspector.so";
-        std::string appDir2 = "/data/user/0/" + targetDesc + "/libUEMobileInspector.so";
+        // Clean up any old injected SOs from previous runs
+        char cleanCmd[512];
+        snprintf(cleanCmd, sizeof(cleanCmd), "rm -f /data/data/%s/libUEMI_*.so 2>/dev/null", targetDesc.c_str());
+        system(cleanCmd);
+        snprintf(cleanCmd, sizeof(cleanCmd), "rm -f /data/user/0/%s/libUEMI_*.so 2>/dev/null", targetDesc.c_str());
+        system(cleanCmd);
+
+        // Create uniquely-named copy so dlopen always treats it as a NEW library
+        char uniqueName[256];
+        snprintf(uniqueName, sizeof(uniqueName), "libUEMI_%ld.so", ts);
+
+        std::string appDir1 = "/data/data/" + targetDesc + "/" + uniqueName;
+        std::string appDir2 = "/data/user/0/" + targetDesc + "/" + uniqueName;
         
         CopyFile(soPath, appDir1);
         CopyFile(soPath, appDir2);
         
-        char cmdBuf[256];
-        snprintf(cmdBuf, sizeof(cmdBuf), "chmod 777 /data/data/%s/libUEMobileInspector.so 2>/dev/null", targetDesc.c_str());
+        char cmdBuf[512];
+        snprintf(cmdBuf, sizeof(cmdBuf), "chmod 777 '%s' 2>/dev/null", appDir1.c_str());
         system(cmdBuf);
-        snprintf(cmdBuf, sizeof(cmdBuf), "chcon u:object_r:app_data_file:s0 /data/data/%s/libUEMobileInspector.so 2>/dev/null", targetDesc.c_str());
+        snprintf(cmdBuf, sizeof(cmdBuf), "chcon u:object_r:app_data_file:s0 '%s' 2>/dev/null", appDir1.c_str());
+        system(cmdBuf);
+        snprintf(cmdBuf, sizeof(cmdBuf), "chmod 777 '%s' 2>/dev/null", appDir2.c_str());
+        system(cmdBuf);
+        snprintf(cmdBuf, sizeof(cmdBuf), "chcon u:object_r:app_data_file:s0 '%s' 2>/dev/null", appDir2.c_str());
         system(cmdBuf);
 
+        printf("[*] Using unique SO name: %s (prevents stale dlopen cache)\n", uniqueName);
         candidatePaths.push_back(appDir1);
         candidatePaths.push_back(appDir2);
     }
