@@ -1,5 +1,5 @@
 #include "EGLHook.hpp"
-#include "dobby.h"
+#include "HookManager.hpp"
 #include "GUI.hpp"
 #include "imgui.h"
 #include "imgui_impl_opengl3.h"

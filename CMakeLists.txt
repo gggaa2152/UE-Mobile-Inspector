@@ -5,10 +5,10 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Include FetchContent for third-party dependencies
+# Include FetchContent for Dear ImGui
 include(FetchContent)
 
-# 1. Fetch Dear ImGui (v1.90.4)
+# Fetch Dear ImGui (v1.90.4)
 message(STATUS "Fetching Dear ImGui...")
 FetchContent_Declare(
     imgui
@@ -21,19 +21,7 @@ if(NOT imgui_POPULATED)
     FetchContent_Populate(imgui)
 endif()
 
-# 2. Fetch Dobby Hook Framework
-message(STATUS "Fetching Dobby Hook...")
-FetchContent_Declare(
-    dobby
-    GIT_REPOSITORY https://github.com/jmpews/Dobby.git
-    GIT_TAG master
-    GIT_SHALLOW TRUE
-)
-set(DOBBY_BUILD_STATIC ON CACHE BOOL "" FORCE)
-set(DOBBY_GENERATE_SHARED OFF CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(dobby)
-
-# Optimization & Compiler Flags
+# Compiler Flags
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -fvisibility=hidden -fvisibility-inlines-hidden -ffunction-sections -fdata-sections")
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -DNDEBUG")
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,--gc-sections")
@@ -47,7 +35,6 @@ include_directories(
     src/hook
     ${imgui_SOURCE_DIR}
     ${imgui_SOURCE_DIR}/backends
-    ${dobby_SOURCE_DIR}/include
 )
 
 # ImGui Source Files
@@ -56,7 +43,6 @@ set(IMGUI_SOURCES
     ${imgui_SOURCE_DIR}/imgui_draw.cpp
     ${imgui_SOURCE_DIR}/imgui_tables.cpp
     ${imgui_SOURCE_DIR}/imgui_widgets.cpp
-    ${imgui_SOURCE_DIR}/imgui_demo.cpp
     ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
     ${imgui_SOURCE_DIR}/backends/imgui_impl_android.cpp
 )
@@ -74,6 +60,7 @@ set(PROJECT_SOURCES
     src/gui/views/TracerView.cpp
     src/gui/views/ToolsView.cpp
     src/gui/views/SettingsView.cpp
+    src/hook/HookManager.cpp
     src/hook/EGLHook.cpp
     src/hook/TouchHook.cpp
     ${IMGUI_SOURCES}
@@ -91,7 +78,6 @@ target_compile_definitions(UEMobileInspector PRIVATE
 
 # Link Libraries
 target_link_libraries(UEMobileInspector PRIVATE
-    dobby
     android
     log
     EGL
