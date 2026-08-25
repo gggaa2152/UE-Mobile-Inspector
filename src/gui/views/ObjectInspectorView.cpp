@@ -42,8 +42,8 @@ namespace GUI {
 
             bool isLast = (i == Breadcrumbs.size() - 1);
             if (isLast) {
-                ImGui::TextColored(ImVec4(0.95f, 0.4f, 0.8f, 1.0f), "%s (0x%lx)", 
-                                   Breadcrumbs[i].Name.c_str(), reinterpret_cast<uintptr_t>(Breadcrumbs[i].ObjectPtr));
+                ImGui::TextColored(ImVec4(0.95f, 0.4f, 0.8f, 1.0f), "%s (%p)", 
+                                   Breadcrumbs[i].Name.c_str(), Breadcrumbs[i].ObjectPtr);
             } else {
                 if (ImGui::SmallButton(Breadcrumbs[i].Name.c_str())) {
                     // Navigate back to this breadcrumb

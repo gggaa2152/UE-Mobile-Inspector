@@ -1,6 +1,7 @@
 #include "ClassBrowserView.hpp"
 #include "imgui.h"
 #include <algorithm>
+#include <cstdlib>
 
 namespace GUI {
 
@@ -86,7 +87,8 @@ namespace GUI {
                 ImGui::InputText("##ManualPtr", ManualAddressInput, sizeof(ManualAddressInput));
                 ImGui::SameLine();
                 if (ImGui::Button("Inspect Address", ImVec2(120, 32))) {
-                    uintptr_t ptr = strtoul(ManualAddressInput, nullptr, 16);
+                    unsigned long long ptrVal = strtoull(ManualAddressInput, nullptr, 16);
+                    uintptr_t ptr = static_cast<uintptr_t>(ptrVal);
                     if (ptr && UE::Memory::IsValidPtr(reinterpret_cast<void*>(ptr))) {
                         if (onSelectInstance) {
                             onSelectInstance(reinterpret_cast<UE::UObject*>(ptr));
@@ -103,7 +105,7 @@ namespace GUI {
                 for (UE::UObject* inst : FoundInstances) {
                     if (!inst || !UE::Memory::IsValidPtr(inst)) continue;
                     char label[256];
-                    snprintf(label, sizeof(label), "%s (0x%lx)", inst->GetName().c_str(), reinterpret_cast<uintptr_t>(inst));
+                    snprintf(label, sizeof(label), "%s (%p)", inst->GetName().c_str(), inst);
                     
                     if (ImGui::Button(label, ImVec2(ImGui::GetContentRegionAvail().x, 28))) {
                         if (onSelectInstance) {

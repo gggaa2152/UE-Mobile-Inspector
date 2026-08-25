@@ -78,7 +78,7 @@ namespace GUI {
                 ImGui::TextColored(ImVec4(0.3f, 0.85f, 0.9f, 1.0f), "%s", rec.FunctionName.c_str());
 
                 ImGui::TableSetColumnIndex(4);
-                ImGui::TextDisabled("0x%lx", rec.ObjectAddr);
+                ImGui::TextDisabled("%p", reinterpret_cast<void*>(rec.ObjectAddr));
             }
 
             if (bAutoScroll && ImGui::GetScrollY() >= ImGui::GetScrollMaxY()) {

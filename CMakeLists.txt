@@ -5,10 +5,38 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Include FetchContent for third-party dependencies
+include(FetchContent)
+
+# 1. Fetch Dear ImGui (v1.90.4)
+message(STATUS "Fetching Dear ImGui...")
+FetchContent_Declare(
+    imgui
+    GIT_REPOSITORY https://github.com/ocornut/imgui.git
+    GIT_TAG v1.90.4
+    GIT_SHALLOW TRUE
+)
+FetchContent_GetProperties(imgui)
+if(NOT imgui_POPULATED)
+    FetchContent_Populate(imgui)
+endif()
+
+# 2. Fetch Dobby Hook Framework
+message(STATUS "Fetching Dobby Hook...")
+FetchContent_Declare(
+    dobby
+    GIT_REPOSITORY https://github.com/jmpews/Dobby.git
+    GIT_TAG master
+    GIT_SHALLOW TRUE
+)
+set(DOBBY_BUILD_STATIC ON CACHE BOOL "" FORCE)
+set(DOBBY_GENERATE_SHARED OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(dobby)
+
 # Optimization & Compiler Flags
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -fvisibility=hidden -fvisibility-inlines-hidden -ffunction-sections -fdata-sections")
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -flto -DNDEBUG")
-set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,--gc-sections -Wl,--exclude-libs,ALL")
+set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,--gc-sections")
 
 # Include Directories
 include_directories(
@@ -17,20 +45,20 @@ include_directories(
     src/gui
     src/gui/views
     src/hook
-    src/thirdparty
-    src/thirdparty/imgui
-    src/thirdparty/dobby
+    ${imgui_SOURCE_DIR}
+    ${imgui_SOURCE_DIR}/backends
+    ${dobby_SOURCE_DIR}/include
 )
 
 # ImGui Source Files
 set(IMGUI_SOURCES
-    src/thirdparty/imgui/imgui.cpp
-    src/thirdparty/imgui/imgui_draw.cpp
-    src/thirdparty/imgui/imgui_tables.cpp
-    src/thirdparty/imgui/imgui_widgets.cpp
-    src/thirdparty/imgui/imgui_demo.cpp
-    src/thirdparty/imgui/imgui_impl_opengl3.cpp
-    src/thirdparty/imgui/imgui_impl_android.cpp
+    ${imgui_SOURCE_DIR}/imgui.cpp
+    ${imgui_SOURCE_DIR}/imgui_draw.cpp
+    ${imgui_SOURCE_DIR}/imgui_tables.cpp
+    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+    ${imgui_SOURCE_DIR}/imgui_demo.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_android.cpp
 )
 
 # Core & Feature Sources
@@ -61,8 +89,9 @@ target_compile_definitions(UEMobileInspector PRIVATE
     IMGUI_DISABLE_OBSOLETE_KEYIO
 )
 
-# Link Libraries for Android
+# Link Libraries
 target_link_libraries(UEMobileInspector PRIVATE
+    dobby_static
     android
     log
     EGL

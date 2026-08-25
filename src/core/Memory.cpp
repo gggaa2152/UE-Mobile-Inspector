@@ -1,10 +1,12 @@
 #include "Memory.hpp"
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <dlfcn.h>
 #include <link.h>
 #include <sys/uio.h>
 #include <unistd.h>
+#include <inttypes.h>
 
 namespace Memory {
 
@@ -17,7 +19,10 @@ namespace Memory {
 
         while (fgets(line, sizeof(line), fp)) {
             if (strstr(line, moduleName)) {
-                address = strtoul(line, nullptr, 16);
+                unsigned long long addr = 0;
+                if (sscanf(line, "%llx-", &addr) == 1) {
+                    address = static_cast<uintptr_t>(addr);
+                }
                 break;
             }
         }
@@ -35,13 +40,13 @@ namespace Memory {
 
         while (fgets(line, sizeof(line), fp)) {
             if (strstr(line, moduleName)) {
-                uintptr_t segStart = 0, segEnd = 0;
-                if (sscanf(line, "%lx-%lx", &segStart, &segEnd) == 2) {
+                unsigned long long segStart = 0, segEnd = 0;
+                if (sscanf(line, "%llx-%llx", &segStart, &segEnd) == 2) {
                     if (!found) {
-                        startAddr = segStart;
+                        startAddr = static_cast<uintptr_t>(segStart);
                         found = true;
                     }
-                    endAddr = segEnd;
+                    endAddr = static_cast<uintptr_t>(segEnd);
                 }
             }
         }
@@ -51,7 +56,9 @@ namespace Memory {
 
     uintptr_t FindPattern(uintptr_t start, size_t length, const char* pattern, const char* mask) {
         size_t patternLen = strlen(mask);
-        for (size_t i = 0; i < length - patternLen; ++i) {
+        if (length < patternLen) return 0;
+
+        for (size_t i = 0; i <= length - patternLen; ++i) {
             bool found = true;
             for (size_t j = 0; j < patternLen; ++j) {
                 if (mask[j] != '?' && pattern[j] != *reinterpret_cast<const char*>(start + i + j)) {
