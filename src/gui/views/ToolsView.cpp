@@ -1,6 +1,7 @@
 #include "ToolsView.hpp"
 #include "../config.hpp"
 #include "UECore.hpp"
+#include "Memory.hpp"
 #include "imgui.h"
 #include <fstream>
 

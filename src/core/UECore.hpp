@@ -7,6 +7,7 @@
 #include "Memory.hpp"
 
 namespace UE {
+    namespace Memory = ::Memory;
 
     class UObject;
     class UClass;

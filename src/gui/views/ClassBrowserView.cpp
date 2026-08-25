@@ -1,4 +1,5 @@
 #include "ClassBrowserView.hpp"
+#include "Memory.hpp"
 #include "imgui.h"
 #include <algorithm>
 #include <cstdlib>

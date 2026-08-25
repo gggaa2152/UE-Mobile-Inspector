@@ -1,5 +1,6 @@
 #include "ObjectInspectorView.hpp"
 #include "../config.hpp"
+#include "Memory.hpp"
 #include "imgui.h"
 #include <algorithm>
 
