@@ -55,20 +55,15 @@ jobs:
         run: |
           cmake --build build_${{ matrix.abi }} --config Release -v > build_${{ matrix.abi }}.log 2>&1
 
-      - name: Show Log On Failure
-        if: failure()
-        run: |
-          echo "=== BUILD LOG HEAD ==="
-          head -n 50 build_${{ matrix.abi }}.log || true
-          echo "=== BUILD LOG TAIL ==="
-          tail -n 100 build_${{ matrix.abi }}.log || true
-
-      - name: Upload Build Log
+      - name: Commit Log to Branch
         if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-log-${{ matrix.abi }}
-          path: build_${{ matrix.abi }}.log
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -B build-logs
+          git add build_${{ matrix.abi }}.log
+          git commit -m "build log for ${{ matrix.abi }}" || true
+          git push origin build-logs --force
 
       - name: Upload Artifacts
         if: success()
