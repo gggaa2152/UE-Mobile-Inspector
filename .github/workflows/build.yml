@@ -53,18 +53,25 @@ jobs:
 
       - name: Build Shared Library
         run: |
-          set -o pipefail
-          cmake --build build_${{ matrix.abi }} --config Release -v 2>&1 | tee build_${{ matrix.abi }}.log
+          cmake --build build_${{ matrix.abi }} --config Release -v > build_${{ matrix.abi }}.log 2>&1
 
-      - name: Output Build Summary
-        if: always()
+      - name: Show Log On Failure
+        if: failure()
         run: |
-          echo "### Build Output for ${{ matrix.abi }}" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          tail -n 60 build_${{ matrix.abi }}.log >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "=== BUILD LOG HEAD ==="
+          head -n 50 build_${{ matrix.abi }}.log || true
+          echo "=== BUILD LOG TAIL ==="
+          tail -n 100 build_${{ matrix.abi }}.log || true
+
+      - name: Upload Build Log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-${{ matrix.abi }}
+          path: build_${{ matrix.abi }}.log
 
       - name: Upload Artifacts
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: libUEMobileInspector-${{ matrix.abi }}
