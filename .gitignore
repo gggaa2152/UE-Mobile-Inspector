@@ -1,0 +1,30 @@
+# Build outputs
+build/
+build_*/
+bin/
+obj/
+*.so
+*.a
+*.o
+*.ninja
+.ninja_*
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.user
+
+# Android / NDK
+.cxx/
+local.properties
+
+# OS & Media files
+*.mp4
+*.mkv
+.DS_Store
+Thumbs.db
