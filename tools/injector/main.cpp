@@ -159,6 +159,11 @@ int main(int argc, char** argv) {
 
     printf("[+] Target process found! [%s] (PID: %d)\n", targetDesc.c_str(), targetPid);
 
+    // *** Clear old log files BEFORE injection so we only see fresh output ***
+    remove("/data/1/ue_inspector.log");
+    remove("/sdcard/ue_inspector.log");
+    remove("/data/local/tmp/ue_inspector.log");
+
     // Setup app sandbox fallback paths to bypass Android 10-15 Linker Namespace restrictions
     std::vector<std::string> candidatePaths;
     if (targetDesc.find('.') != std::string::npos) {
@@ -194,28 +199,29 @@ int main(int argc, char** argv) {
         printf("\n====================================================\n");
         printf(" >>> INJECTION SUCCESSFUL! <<<\n");
         printf("====================================================\n");
-        printf("[*] Waiting for in-game initialization logs...\n");
-        sleep(2);
+        printf("[*] Waiting 8 seconds for in-game diagnostics (including 5s watchdog)...\n");
+        sleep(8);
 
-        // Read and display in-game initialization logs directly on screen
-        const char* logPaths[] = { "/data/1/ue_inspector.log", "/sdcard/ue_inspector.log" };
+        // Read and display FRESH in-game logs
+        const char* logPaths[] = { "/data/1/ue_inspector.log", "/sdcard/ue_inspector.log", "/data/local/tmp/ue_inspector.log" };
         bool printedLogs = false;
         for (const char* lp : logPaths) {
             FILE* lfp = fopen(lp, "rt");
             if (lfp) {
-                printf("\n--- [In-Game Log Output: %s] ---\n", lp);
+                printf("\n========== [FRESH In-Game Diagnostic Log: %s] ==========\n", lp);
                 char line[512];
                 while (fgets(line, sizeof(line), lfp)) {
                     printf("%s", line);
                 }
                 fclose(lfp);
-                printf("--------------------------------------------------\n\n");
+                printf("==========================================================\n\n");
                 printedLogs = true;
                 break;
             }
         }
         if (!printedLogs) {
-            printf("[*] Note: In-game logs will be continuously written to: /sdcard/ue_inspector.log\n");
+            printf("[!] WARNING: No log file was created! The library constructor may have crashed.\n");
+            printf("[!] Try: logcat -s UE-Mobile-Inspector\n");
         }
         return 0;
     } else {
@@ -223,3 +229,4 @@ int main(int argc, char** argv) {
         return 1;
     }
 }
+
