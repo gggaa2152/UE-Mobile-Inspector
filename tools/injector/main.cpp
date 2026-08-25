@@ -13,6 +13,26 @@ static bool FileExists(const std::string& path) {
     return stat(path.c_str(), &st) == 0;
 }
 
+// Helper to copy file
+static bool CopyFile(const std::string& src, const std::string& dst) {
+    FILE* in = fopen(src.c_str(), "rb");
+    if (!in) return false;
+    FILE* out = fopen(dst.c_str(), "wb");
+    if (!out) {
+        fclose(in);
+        return false;
+    }
+    char buf[8192];
+    size_t n = 0;
+    while ((n = fread(buf, 1, sizeof(buf), in)) > 0) {
+        fwrite(buf, 1, n, out);
+    }
+    fclose(in);
+    fclose(out);
+    chmod(dst.c_str(), 0777);
+    return true;
+}
+
 // Auto-scan running processes for Unreal Engine / Game targets without requiring any user input
 static pid_t AutoDetectTargetPid(std::string& detectedName) {
     const char* defaultCandidates[] = {
@@ -85,6 +105,10 @@ int main(int argc, char** argv) {
     printf(" Working Directory: /data/1/                        \n");
     printf("====================================================\n");
 
+    // 1. Ensure permissive permissions on /data/1/
+    system("chmod -R 777 /data/1 2>/dev/null");
+    system("chcon -R u:object_r:apk_data_file:s0 /data/1 2>/dev/null");
+
     std::string packageName = "";
     std::string soPath = "/data/1/libUEMobileInspector.so";
     pid_t targetPid = -1;
@@ -134,14 +158,44 @@ int main(int argc, char** argv) {
     }
 
     printf("[+] Target process found! [%s] (PID: %d)\n", targetDesc.c_str(), targetPid);
+
+    // Setup app sandbox fallback paths to bypass Android 10-15 Linker Namespace restrictions
+    std::vector<std::string> candidatePaths;
+    if (targetDesc.find('.') != std::string::npos) {
+        std::string appDir1 = "/data/data/" + targetDesc + "/libUEMobileInspector.so";
+        std::string appDir2 = "/data/user/0/" + targetDesc + "/libUEMobileInspector.so";
+        
+        CopyFile(soPath, appDir1);
+        CopyFile(soPath, appDir2);
+        
+        char cmdBuf[256];
+        snprintf(cmdBuf, sizeof(cmdBuf), "chmod 777 /data/data/%s/libUEMobileInspector.so 2>/dev/null", targetDesc.c_str());
+        system(cmdBuf);
+        snprintf(cmdBuf, sizeof(cmdBuf), "chcon u:object_r:app_data_file:s0 /data/data/%s/libUEMobileInspector.so 2>/dev/null", targetDesc.c_str());
+        system(cmdBuf);
+
+        candidatePaths.push_back(appDir1);
+        candidatePaths.push_back(appDir2);
+    }
+    candidatePaths.push_back(soPath);
+
     printf("[*] Starting automated PTrace injection...\n");
 
-    bool success = Injector::InjectLibrary(targetPid, soPath);
+    bool success = false;
+    for (const auto& path : candidatePaths) {
+        printf("[*] Attempting injection with path: %s\n", path.c_str());
+        if (Injector::InjectLibrary(targetPid, path)) {
+            success = true;
+            break;
+        }
+    }
+
     if (success) {
         printf("\n====================================================\n");
         printf(" >>> INJECTION SUCCESSFUL! <<<\n");
         printf(" Look at your phone screen: the [UE] floating icon\n");
         printf(" is now active on the top-left corner.\n");
+        printf(" (Logs written to: /sdcard/ue_inspector.log)\n");
         printf("====================================================\n");
         return 0;
     } else {
