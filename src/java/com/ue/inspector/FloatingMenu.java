@@ -153,6 +153,7 @@ public class FloatingMenu {
                     floatingBtn.setOnTouchListener(new View.OnTouchListener() {
                         private float initialX, initialY, initialTouchX, initialTouchY;
                         private boolean isDragging = false;
+                        private long touchStartTime = 0;
 
                         @Override
                         public boolean onTouch(View v, MotionEvent event) {
@@ -163,12 +164,13 @@ public class FloatingMenu {
                                     initialTouchX = event.getRawX();
                                     initialTouchY = event.getRawY();
                                     isDragging = false;
+                                    touchStartTime = System.currentTimeMillis();
                                     return true;
 
                                 case MotionEvent.ACTION_MOVE:
                                     float dx = event.getRawX() - initialTouchX;
                                     float dy = event.getRawY() - initialTouchY;
-                                    if (Math.abs(dx) > 10 || Math.abs(dy) > 10) isDragging = true;
+                                    if (Math.abs(dx) > 15 || Math.abs(dy) > 15) isDragging = true;
                                     if (isDragging) {
                                         btnParams.leftMargin = (int) (initialX + dx);
                                         btnParams.topMargin = (int) (initialY + dy);
@@ -177,7 +179,8 @@ public class FloatingMenu {
                                     return true;
 
                                 case MotionEvent.ACTION_UP:
-                                    if (!isDragging) {
+                                    long duration = System.currentTimeMillis() - touchStartTime;
+                                    if (!isDragging || duration < 150) {
                                         if (webContainer != null) {
                                             webContainer.setVisibility(webContainer.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
                                         }

@@ -456,9 +456,6 @@ namespace GUI {
 </head>
 <body>
 
-    <!-- Floating UE Button -->
-    <div class="floating-ball" id="floating-btn">UE</div>
-
     <!-- Main Inspector Window -->
     <div class="inspector-window" id="inspector-window">
         <!-- Title Bar -->
@@ -645,15 +642,6 @@ namespace GUI {
                 window.nativeAPI.minimizeWindow();
             } else {
                 inspectorWindow.classList.add("hidden");
-            }
-        });
-
-        // Floating Button
-        document.getElementById("floating-btn").addEventListener("click", () => {
-            if (isNative && window.nativeAPI.showWindow) {
-                window.nativeAPI.showWindow();
-            } else {
-                inspectorWindow.classList.remove("hidden");
             }
         });
 
