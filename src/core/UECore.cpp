@@ -28,54 +28,104 @@ namespace UE {
         int32_t NumChunks;
     };
 
+    static inline uint8_t DecryptDeltaForceByte(uint8_t byte, uint32_t strLength) {
+        uint8_t key = 0;
+        switch (strLength % 9) {
+            case 0: key = ((strLength & 0x1F) + strLength + 0x80) | 0x7F; break;
+            case 1: key = ((strLength ^ 0xDF) + strLength + 0x80) | 0x7F; break;
+            case 2: key = ((strLength | 0xCF) + strLength + 128) | 0x7F; break;
+            case 3: key = (33 * strLength + 128) | 0x7F; break;
+            case 4: key = (strLength + (strLength >> 2) + 0x80) | 0x7F; break;
+            case 5: key = (3 * strLength + 133) | 0x7F; break;
+            case 6: key = (((4 * strLength) | 5) + strLength + 128) | 0x7F; break;
+            case 7: key = (((strLength >> 4) | 7) + strLength + 128) | 0x7F; break;
+            case 8: key = ((strLength ^ 0xC) + strLength + 0x80) | 0x7F; break;
+            default: key = ((strLength ^ 0x40) + strLength + 128) | 0x7F; break;
+        }
+        return byte ^ key;
+    }
+
+    static std::string ExtractDecryptedFName(const uint8_t* entryPtr) {
+        if (!Memory::IsValidPtr(entryPtr)) return "";
+        uint16_t header = *reinterpret_cast<const uint16_t*>(entryPtr);
+        uint32_t len = header >> 6;
+        if (len == 0 || len >= 256) len = header >> 1;
+        if (len == 0 || len >= 256) return "";
+
+        const uint8_t* rawStr = entryPtr + 2;
+        if (!Memory::IsValidPtr(rawStr)) return "";
+
+        // 1. Raw printable check
+        bool rawPrintable = true;
+        for (uint32_t i = 0; i < len; ++i) {
+            if (rawStr[i] < 32 || rawStr[i] > 126) {
+                rawPrintable = false;
+                break;
+            }
+        }
+        if (rawPrintable) {
+            return std::string(reinterpret_cast<const char*>(rawStr), len);
+        }
+
+        // 2. Delta Force XOR Decryption check (DreamFekk / dump-7 algorithm)
+        std::string decrypted(len, '\0');
+        for (uint32_t i = 0; i < len; ++i) {
+            decrypted[i] = static_cast<char>(DecryptDeltaForceByte(rawStr[i], len));
+        }
+
+        bool decPrintable = true;
+        for (uint32_t i = 0; i < len; ++i) {
+            unsigned char c = static_cast<unsigned char>(decrypted[i]);
+            if (c < 32 || c > 126) {
+                decPrintable = false;
+                break;
+            }
+        }
+        if (decPrintable) {
+            return decrypted;
+        }
+
+        return "";
+    }
+
     std::string FName::ToString() const {
         uintptr_t gnames = CoreManager::Get().GetGNamesAddress();
         if (!gnames) return "None";
 
-        uint32_t block = ComparisonIndex >> 16;
-        uint32_t offset = ComparisonIndex & 65535;
-        if (block >= 1024) return "Name_" + std::to_string(ComparisonIndex);
+        // Try both standard 16-bit indexing and Delta Force 18-bit indexing
+        struct IndexShift { uint32_t block; uint32_t offset; };
+        IndexShift shifts[2] = {
+            { static_cast<uint32_t>(ComparisonIndex >> 16), static_cast<uint32_t>(ComparisonIndex & 0xFFFF) },
+            { static_cast<uint32_t>(ComparisonIndex >> 18), static_cast<uint32_t>(ComparisonIndex & 0x3FFFF) }
+        };
 
-        for (int blockOffset : {0x10, 0x08, 0x00, 0x18}) {
-            uintptr_t* blocks = reinterpret_cast<uintptr_t*>(gnames + blockOffset);
-            if (!Memory::IsValidPtr(blocks) || !Memory::IsValidPtr(&blocks[block])) {
-                continue;
-            }
+        for (const auto& shift : shifts) {
+            if (shift.block >= 1024) continue;
 
-            uintptr_t blockPtr = blocks[block];
-            if (!Memory::IsValidPtr(reinterpret_cast<void*>(blockPtr))) {
-                continue;
-            }
-
-            uintptr_t entry = blockPtr + offset * 2;
-            if (!Memory::IsValidPtr(reinterpret_cast<void*>(entry))) {
-                continue;
-            }
-
-            uint16_t header = *reinterpret_cast<uint16_t*>(entry);
-            uint32_t len = header >> 6;
-            if (len == 0 || len >= 1024) len = header >> 1; // Fallback for UE5 / alternate layout
-
-            if (len > 0 && len < 1024) {
-                char buf[1024] = {0};
-                memcpy(buf, reinterpret_cast<const void*>(entry + 2), len);
-                buf[len] = '\0';
-                
-                // Check if result contains printable characters
-                bool isPrintable = true;
-                for (size_t i = 0; i < len; ++i) {
-                    if (buf[i] < 32 || buf[i] > 126) {
-                        isPrintable = false;
-                        break;
-                    }
+            for (int blockOffset : {0x38, 0x10, 0x08, 0x00, 0x18}) {
+                uintptr_t* blocks = reinterpret_cast<uintptr_t*>(gnames + blockOffset);
+                if (!Memory::IsValidPtr(blocks) || !Memory::IsValidPtr(&blocks[shift.block])) {
+                    continue;
                 }
 
-                if (isPrintable) {
-                    std::string result(buf);
-                    if (Number > 0) {
-                        result += "_" + std::to_string(Number - 1);
+                uintptr_t blockPtr = blocks[shift.block];
+                if (!Memory::IsValidPtr(reinterpret_cast<void*>(blockPtr))) {
+                    continue;
+                }
+
+                for (int stride : {2, 1, 4}) {
+                    uintptr_t entry = blockPtr + shift.offset * stride;
+                    if (!Memory::IsValidPtr(reinterpret_cast<void*>(entry))) {
+                        continue;
                     }
-                    return result;
+
+                    std::string res = ExtractDecryptedFName(reinterpret_cast<const uint8_t*>(entry));
+                    if (!res.empty()) {
+                        if (Number > 0) {
+                            res += "_" + std::to_string(Number - 1);
+                        }
+                        return res;
+                    }
                 }
             }
         }
@@ -196,32 +246,36 @@ namespace UE {
         LOGI("[AutoScanner] Initiating Heuristic Scan for GNames / FNamePool...");
         auto segments = Memory::GetModuleSegments(moduleName);
         
+        static const char* kKnownKeywords[] = {
+            "None", "ByteProperty", "IntProperty", "BoolProperty",
+            "FloatProperty", "ObjectProperty", "NameProperty",
+            "StructProperty", "ArrayProperty", "Object", "Class", "Function"
+        };
+
         for (const auto& seg : segments) {
             if (!seg.isReadable || !seg.isWritable) continue;
             
             for (uintptr_t addr = seg.start; addr + 0x40 < seg.end; addr += 8) {
-                for (int blockOffset : {0x10, 0x08, 0x00, 0x18}) {
+                for (int blockOffset : {0x38, 0x10, 0x08, 0x00, 0x18}) {
                     uintptr_t* blocks = reinterpret_cast<uintptr_t*>(addr + blockOffset);
                     if (!Memory::IsValidPtr(blocks)) continue;
                     
                     uintptr_t block0 = blocks[0];
                     if (!Memory::IsValidPtr(reinterpret_cast<void*>(block0))) continue;
                     
-                    for (int entryOffset : {0, 2, 4}) {
+                    for (int entryOffset : {0, 2, 4, 8}) {
                         uintptr_t entry = block0 + entryOffset;
                         if (!Memory::IsValidPtr(reinterpret_cast<void*>(entry))) continue;
                         
-                        const char* str = reinterpret_cast<const char*>(entry + 2);
-                        if (Memory::IsValidPtr(str) && (strncmp(str, "None", 4) == 0 || strncmp(str, "ByteProperty", 12) == 0)) {
-                            LOGI("[AutoScanner] >>> SUCCESS: Discovered GNames/FNamePool at 0x%lx (blockOffset: 0x%x, str: %s) <<<",
-                                 addr, blockOffset, str);
-                            return addr;
-                        }
-                        
-                        const char* strDirect = reinterpret_cast<const char*>(entry);
-                        if (Memory::IsValidPtr(strDirect) && (strncmp(strDirect, "None", 4) == 0 || strncmp(strDirect, "ByteProperty", 12) == 0)) {
-                            LOGI("[AutoScanner] >>> SUCCESS: Discovered GNames/FNamePool at 0x%lx (direct str: %s) <<<", addr, strDirect);
-                            return addr;
+                        std::string parsed = ExtractDecryptedFName(reinterpret_cast<const uint8_t*>(entry));
+                        if (!parsed.empty()) {
+                            for (const char* kw : kKnownKeywords) {
+                                if (parsed == kw) {
+                                    LOGI("[AutoScanner] >>> SUCCESS: Discovered GNames/FNamePool at 0x%lx (blockOffset: 0x%x, keyword: '%s') <<<",
+                                         addr, blockOffset, parsed.c_str());
+                                    return addr;
+                                }
+                            }
                         }
                     }
                 }
@@ -248,14 +302,15 @@ namespace UE {
                     if (arr->NumChunks < 1 || arr->NumChunks > 1000) continue;
                     if (arr->MaxChunks < arr->NumChunks || arr->MaxChunks > 2000) continue;
                     
-                    if (!Memory::IsValidPtr(arr->Objects)) continue;
-                    if (!Memory::IsValidPtr(arr->Objects[0])) continue;
+                    if (!Memory::IsValidPtr(arr->Objects) || !Memory::IsValidPtr(&arr->Objects[0])) continue;
+                    FUObjectItem* chunk0 = arr->Objects[0];
+                    if (!Memory::IsValidPtr(chunk0)) continue;
                     
                     int validObjectCount = 0;
                     int validVTableCount = 0;
                     
                     for (int i = 0; i < std::min(arr->NumElements, 100); ++i) {
-                        FUObjectItem* item = &arr->Objects[0][i];
+                        FUObjectItem* item = &chunk0[i];
                         if (!Memory::IsValidPtr(item)) break;
                         
                         UObject* obj = item->Object;
