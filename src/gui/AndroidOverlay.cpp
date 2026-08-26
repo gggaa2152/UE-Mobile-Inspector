@@ -11,6 +11,9 @@
 #include <sstream>
 #include <unordered_set>
 #include <iomanip>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 
 typedef jint (*JNI_GetCreatedJavaVMs_t)(JavaVM**, jsize, jsize*);
 
