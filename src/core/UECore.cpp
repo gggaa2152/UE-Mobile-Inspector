@@ -242,13 +242,18 @@ namespace UE {
         return true;
     }
 
+    static int g_ItemStride = 24;
+    static int g_NumElementsOffset = 0x14;
+    static int g_ObjectsOffset = 0x00;
+    static int g_FNameBlockOffset = 0x38;
+
     static uintptr_t ScanGNamesHeuristic(const char* moduleName) {
         LOGI("[AutoScanner] Initiating Heuristic Scan for GNames / FNamePool...");
         static const char* kKnownKeywords[] = {
             "None", "ByteProperty", "IntProperty", "BoolProperty",
             "FloatProperty", "ObjectProperty", "NameProperty",
             "StructProperty", "ArrayProperty", "Object", "Class", "Function",
-            "Actor", "PlayerController", "Character", "Pawn", "Engine"
+            "Actor", "PlayerController", "Character", "Pawn", "Engine", "World"
         };
 
         uintptr_t ueBase = Memory::GetModuleBase(moduleName);
@@ -272,6 +277,7 @@ namespace UE {
                         if (!parsed.empty()) {
                             for (const char* kw : kKnownKeywords) {
                                 if (parsed == kw) {
+                                    g_FNameBlockOffset = blockOffset;
                                     LOGI("[AutoScanner] >>> Fast DeltaForce Range HIT: Discovered GNames at 0x%lx (RVA: 0x%lx, blockOffset: 0x%x, keyword: '%s') <<<",
                                          addr, addr - ueBase, blockOffset, parsed.c_str());
                                     return addr;
@@ -300,6 +306,7 @@ namespace UE {
                         if (!parsed.empty()) {
                             for (const char* kw : kKnownKeywords) {
                                 if (parsed == kw) {
+                                    g_FNameBlockOffset = blockOffset;
                                     LOGI("[AutoScanner] >>> Segments Scan HIT: Discovered GNames at 0x%lx (blockOffset: 0x%x, keyword: '%s') <<<",
                                          addr, blockOffset, parsed.c_str());
                                     return addr;
@@ -315,45 +322,58 @@ namespace UE {
     }
 
     static uintptr_t ScanGUObjectArrayHeuristic(const char* moduleName, bool& outHasGCHeader) {
-        LOGI("[AutoScanner] Initiating Heuristic Scan for GUObjectArray...");
+        LOGI("[AutoScanner] Initiating Universal Heuristic Scan for GUObjectArray...");
         auto segments = Memory::GetModuleSegments(moduleName);
         
         for (const auto& seg : segments) {
             if (!seg.isReadable || !seg.isWritable) continue;
             
-            for (uintptr_t addr = seg.start; addr + 0x40 < seg.end; addr += 8) {
+            for (uintptr_t addr = seg.start; addr + 0x50 < seg.end; addr += 8) {
                 for (bool hasHeader : {true, false}) {
-                    uintptr_t testArrayAddr = hasHeader ? (addr + 0x10) : addr;
-                    TUObjectArray* arr = reinterpret_cast<TUObjectArray*>(testArrayAddr);
-                    if (!Memory::IsValidPtr(arr)) continue;
+                    uintptr_t baseObjAddr = hasHeader ? (addr + 0x10) : addr;
                     
-                    if (arr->NumElements < 50 || arr->NumElements > 5000000) continue;
-                    if (arr->MaxElements < arr->NumElements || arr->MaxElements > 10000000) continue;
-                    
-                    if (!Memory::IsValidPtr(arr->Objects) || !Memory::IsValidPtr(&arr->Objects[0])) continue;
-                    FUObjectItem* chunk0 = arr->Objects[0];
-                    if (!Memory::IsValidPtr(chunk0)) continue;
-                    
-                    int validObjectCount = 0;
-                    for (int i = 0; i < std::min(arr->NumElements, 50); ++i) {
-                        FUObjectItem* item = &chunk0[i];
-                        if (!Memory::IsValidPtr(item)) break;
-                        UObject* obj = item->Object;
-                        if (Memory::IsValidPtr(obj)) {
-                            validObjectCount++;
+                    // Test both Standard layout (+0x14 NumElements) and Compact layout (+0x0C NumElements)
+                    for (int numOff : {0x14, 0x0C, 0x10, 0x18, 0x24}) {
+                        int32_t numElements = *reinterpret_cast<int32_t*>(baseObjAddr + numOff);
+                        if (numElements < 200 || numElements > 3000000) continue;
+
+                        uintptr_t* objectsPtr = *reinterpret_cast<uintptr_t**>(baseObjAddr);
+                        if (!Memory::IsValidPtr(objectsPtr) || !Memory::IsValidPtr(&objectsPtr[0])) continue;
+
+                        uintptr_t chunk0 = objectsPtr[0];
+                        if (!Memory::IsValidPtr(reinterpret_cast<void*>(chunk0))) continue;
+
+                        // Test both 24-byte (0x18) and 16-byte (0x10) FUObjectItem strides
+                        for (int stride : {24, 16}) {
+                            int validObjectCount = 0;
+                            for (int i = 0; i < std::min(numElements, 60); ++i) {
+                                uintptr_t itemAddr = chunk0 + i * stride;
+                                if (!Memory::IsValidPtr(reinterpret_cast<void*>(itemAddr))) break;
+                                
+                                UObject* obj = *reinterpret_cast<UObject**>(itemAddr);
+                                if (Memory::IsValidPtr(obj)) {
+                                    void** vtbl = reinterpret_cast<void**>(obj->VTable);
+                                    if (Memory::IsValidPtr(vtbl) && Memory::IsAddressInExecutable(reinterpret_cast<uintptr_t>(vtbl), moduleName)) {
+                                        validObjectCount++;
+                                    }
+                                }
+                            }
+
+                            if (validObjectCount >= 3) {
+                                outHasGCHeader = hasHeader;
+                                g_ItemStride = stride;
+                                g_NumElementsOffset = numOff;
+                                g_ObjectsOffset = 0;
+                                LOGI("[AutoScanner] >>> SUCCESS: Discovered REAL GUObjectArray at 0x%lx (hasGCHeader: %d, numOff: 0x%x, stride: %d, NumElements: %d, ValidVTables: %d) <<<",
+                                     addr, hasHeader ? 1 : 0, numOff, stride, numElements, validObjectCount);
+                                return addr;
+                            }
                         }
-                    }
-                    
-                    if (validObjectCount >= 3) {
-                        outHasGCHeader = hasHeader;
-                        LOGI("[AutoScanner] >>> SUCCESS: Discovered GUObjectArray at 0x%lx (hasGCHeader: %d, NumElements: %d, ValidObjects: %d) <<<",
-                             addr, hasHeader ? 1 : 0, arr->NumElements, validObjectCount);
-                        return addr;
                     }
                 }
             }
         }
-        LOGI("[AutoScanner] Heuristic GUObjectArray scan did not find a match, using fallback.");
+        LOGI("[AutoScanner] Heuristic GUObjectArray scan did not find a match.");
         return 0;
     }
 
@@ -413,31 +433,30 @@ namespace UE {
     int32_t CoreManager::GetObjectCount() const {
         if (!GUObjectArrayAddr) return 0;
         uintptr_t arrayAddr = bArrayHasGCHeader ? (GUObjectArrayAddr + 0x10) : GUObjectArrayAddr;
-        TUObjectArray* array = reinterpret_cast<TUObjectArray*>(arrayAddr);
-        if (!Memory::IsValidPtr(array)) return 0;
-        return array->NumElements;
+        if (!Memory::IsValidPtr(reinterpret_cast<void*>(arrayAddr + g_NumElementsOffset))) return 0;
+        return *reinterpret_cast<int32_t*>(arrayAddr + g_NumElementsOffset);
     }
 
     UObject* CoreManager::GetObjectByIndex(int32_t Index) const {
-        if (!GUObjectArrayAddr || Index < 0) return nullptr;
-        uintptr_t arrayAddr = bArrayHasGCHeader ? (GUObjectArrayAddr + 0x10) : GUObjectArrayAddr;
-        TUObjectArray* array = reinterpret_cast<TUObjectArray*>(arrayAddr);
-        if (!Memory::IsValidPtr(array) || Index >= array->NumElements) return nullptr;
-
-        const int32_t ElementsPerChunk = 65536; // 64K objects per chunk
+        if (!GUObjectArrayAddr || Index < 0 || Index >= GetObjectCount()) return nullptr;
+        
+        int32_t ElementsPerChunk = 65536; // 64K objects per chunk
         int32_t ChunkIndex = Index / ElementsPerChunk;
         int32_t InChunkIndex = Index % ElementsPerChunk;
 
-        if (!Memory::IsValidPtr(array->Objects) || !Memory::IsValidPtr(&array->Objects[ChunkIndex])) {
+        uintptr_t arrayAddr = bArrayHasGCHeader ? (GUObjectArrayAddr + 0x10) : GUObjectArrayAddr;
+        uintptr_t* objectsPtr = *reinterpret_cast<uintptr_t**>(arrayAddr);
+        if (!Memory::IsValidPtr(objectsPtr) || !Memory::IsValidPtr(&objectsPtr[ChunkIndex])) {
             return nullptr;
         }
 
-        FUObjectItem* chunk = array->Objects[ChunkIndex];
-        if (!Memory::IsValidPtr(chunk) || !Memory::IsValidPtr(&chunk[InChunkIndex])) {
-            return nullptr;
-        }
+        uintptr_t chunk = objectsPtr[ChunkIndex];
+        if (!Memory::IsValidPtr(reinterpret_cast<void*>(chunk))) return nullptr;
 
-        return chunk[InChunkIndex].Object;
+        uintptr_t itemAddr = chunk + InChunkIndex * g_ItemStride;
+        if (!Memory::IsValidPtr(reinterpret_cast<void*>(itemAddr))) return nullptr;
+
+        return *reinterpret_cast<UObject**>(itemAddr);
     }
 
     std::vector<UClass*> CoreManager::GetAllClasses() {

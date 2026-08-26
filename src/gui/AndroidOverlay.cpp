@@ -45,13 +45,17 @@ namespace GUI {
         std::string filter = q ? q : "";
         if (queryStr && q) env->ReleaseStringUTFChars(queryStr, q);
 
+        if (!UE::CoreManager::Get().IsInitialized()) {
+            UE::CoreManager::Get().Initialize();
+        }
+
         std::stringstream ss;
         ss << "[";
         std::unordered_set<std::string> seenClasses;
         int count = 0;
         size_t total = UE::CoreManager::Get().GetObjectCount();
 
-        for (size_t i = 0; i < total && count < 60; i++) {
+        for (size_t i = 0; i < total && count < 100; i++) {
             UE::UObject* obj = UE::CoreManager::Get().GetObjectByIndex(i);
             if (obj && Memory::IsValidPtr(obj) && obj->ClassPrivate && Memory::IsValidPtr(obj->ClassPrivate)) {
                 std::string cName = obj->ClassPrivate->GetName();
@@ -70,13 +74,10 @@ namespace GUI {
             }
         }
 
-        // Fallback demo classes if engine scan is still parsing
         if (count == 0) {
-            ss << "{\"name\":\"BP_PlayerCharacter_C\",\"super\":\"ACharacter\"},"
-               << "{\"name\":\"UCharacterMovementComponent\",\"super\":\"UActorComponent\"},"
-               << "{\"name\":\"APlayerController\",\"super\":\"AController\"},"
-               << "{\"name\":\"UWorld\",\"super\":\"UObject\"},"
-               << "{\"name\":\"UGameEngine\",\"super\":\"UEngine\"}";
+            uintptr_t ueBase = Memory::GetModuleBase(Config::UE_SO_NAME);
+            ss << "{\"name\":\"Scanning libUE4.so (Base: 0x" << std::hex << ueBase << ")\",\"super\":\"Status\"},"
+               << "{\"name\":\"Tap [🔍 扫描/刷新] to search memory\",\"super\":\"Action\"}";
         }
 
         ss << "]";
