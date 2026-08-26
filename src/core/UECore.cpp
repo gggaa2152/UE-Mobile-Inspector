@@ -244,34 +244,61 @@ namespace UE {
 
     static uintptr_t ScanGNamesHeuristic(const char* moduleName) {
         LOGI("[AutoScanner] Initiating Heuristic Scan for GNames / FNamePool...");
-        auto segments = Memory::GetModuleSegments(moduleName);
-        
         static const char* kKnownKeywords[] = {
             "None", "ByteProperty", "IntProperty", "BoolProperty",
             "FloatProperty", "ObjectProperty", "NameProperty",
             "StructProperty", "ArrayProperty", "Object", "Class", "Function"
         };
 
-        for (const auto& seg : segments) {
-            if (!seg.isReadable || !seg.isWritable) continue;
-            
-            for (uintptr_t addr = seg.start; addr + 0x40 < seg.end; addr += 8) {
-                for (int blockOffset : {0x38, 0x10, 0x08, 0x00, 0x18}) {
+        uintptr_t ueBase = Memory::GetModuleBase(moduleName);
+        
+        // 1. Fast Delta Force CN RVA range scan (Page-aligned, 50ms)
+        if (ueBase) {
+            uintptr_t searchStart = ueBase + 0x14000000;
+            uintptr_t searchEnd = ueBase + 0x24000000;
+            for (uintptr_t addr = searchStart; addr < searchEnd; addr += 0x1000) {
+                if (!Memory::IsValidPtr(reinterpret_cast<void*>(addr))) continue;
+                for (int blockOffset : {0x38, 0x10, 0x00, 0x08, 0x18}) {
                     uintptr_t* blocks = reinterpret_cast<uintptr_t*>(addr + blockOffset);
-                    if (!Memory::IsValidPtr(blocks)) continue;
-                    
+                    if (!Memory::IsValidPtr(blocks) || !Memory::IsValidPtr(&blocks[0])) continue;
                     uintptr_t block0 = blocks[0];
                     if (!Memory::IsValidPtr(reinterpret_cast<void*>(block0))) continue;
-                    
                     for (int entryOffset : {0, 2, 4, 8}) {
                         uintptr_t entry = block0 + entryOffset;
                         if (!Memory::IsValidPtr(reinterpret_cast<void*>(entry))) continue;
-                        
                         std::string parsed = ExtractDecryptedFName(reinterpret_cast<const uint8_t*>(entry));
                         if (!parsed.empty()) {
                             for (const char* kw : kKnownKeywords) {
                                 if (parsed == kw) {
-                                    LOGI("[AutoScanner] >>> SUCCESS: Discovered GNames/FNamePool at 0x%lx (blockOffset: 0x%x, keyword: '%s') <<<",
+                                    LOGI("[AutoScanner] >>> Fast DeltaForce Range HIT: Discovered GNames at 0x%lx (RVA: 0x%lx, blockOffset: 0x%x, keyword: '%s') <<<",
+                                         addr, addr - ueBase, blockOffset, parsed.c_str());
+                                    return addr;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Full module segments fallback scan
+        auto segments = Memory::GetModuleSegments(moduleName);
+        for (const auto& seg : segments) {
+            if (!seg.isReadable || !seg.isWritable) continue;
+            for (uintptr_t addr = seg.start; addr + 0x40 < seg.end; addr += 8) {
+                for (int blockOffset : {0x38, 0x10, 0x08, 0x00, 0x18}) {
+                    uintptr_t* blocks = reinterpret_cast<uintptr_t*>(addr + blockOffset);
+                    if (!Memory::IsValidPtr(blocks) || !Memory::IsValidPtr(&blocks[0])) continue;
+                    uintptr_t block0 = blocks[0];
+                    if (!Memory::IsValidPtr(reinterpret_cast<void*>(block0))) continue;
+                    for (int entryOffset : {0, 2, 4, 8}) {
+                        uintptr_t entry = block0 + entryOffset;
+                        if (!Memory::IsValidPtr(reinterpret_cast<void*>(entry))) continue;
+                        std::string parsed = ExtractDecryptedFName(reinterpret_cast<const uint8_t*>(entry));
+                        if (!parsed.empty()) {
+                            for (const char* kw : kKnownKeywords) {
+                                if (parsed == kw) {
+                                    LOGI("[AutoScanner] >>> Segments Scan HIT: Discovered GNames at 0x%lx (blockOffset: 0x%x, keyword: '%s') <<<",
                                          addr, blockOffset, parsed.c_str());
                                     return addr;
                                 }
@@ -296,8 +323,9 @@ namespace UE {
                 for (bool hasHeader : {true, false}) {
                     uintptr_t testArrayAddr = hasHeader ? (addr + 0x10) : addr;
                     TUObjectArray* arr = reinterpret_cast<TUObjectArray*>(testArrayAddr);
+                    if (!Memory::IsValidPtr(arr)) continue;
                     
-                    if (arr->NumElements < 200 || arr->NumElements > 2000000) continue;
+                    if (arr->NumElements < 100 || arr->NumElements > 3000000) continue;
                     if (arr->MaxElements < arr->NumElements || arr->MaxElements > 5000000) continue;
                     if (arr->NumChunks < 1 || arr->NumChunks > 1000) continue;
                     if (arr->MaxChunks < arr->NumChunks || arr->MaxChunks > 2000) continue;
@@ -307,26 +335,19 @@ namespace UE {
                     if (!Memory::IsValidPtr(chunk0)) continue;
                     
                     int validObjectCount = 0;
-                    int validVTableCount = 0;
-                    
-                    for (int i = 0; i < std::min(arr->NumElements, 100); ++i) {
+                    for (int i = 0; i < std::min(arr->NumElements, 50); ++i) {
                         FUObjectItem* item = &chunk0[i];
                         if (!Memory::IsValidPtr(item)) break;
-                        
                         UObject* obj = item->Object;
                         if (Memory::IsValidPtr(obj)) {
                             validObjectCount++;
-                            void** vtbl = reinterpret_cast<void**>(obj->VTable);
-                            if (Memory::IsValidPtr(vtbl) && Memory::IsAddressInExecutable(reinterpret_cast<uintptr_t>(vtbl), moduleName)) {
-                                validVTableCount++;
-                            }
                         }
                     }
                     
-                    if (validObjectCount >= 10 && validVTableCount >= 5) {
+                    if (validObjectCount >= 3) {
                         outHasGCHeader = hasHeader;
-                        LOGI("[AutoScanner] >>> SUCCESS: Discovered GUObjectArray at 0x%lx (hasGCHeader: %d, NumElements: %d, ValidVTables: %d) <<<",
-                             addr, hasHeader ? 1 : 0, arr->NumElements, validVTableCount);
+                        LOGI("[AutoScanner] >>> SUCCESS: Discovered GUObjectArray at 0x%lx (hasGCHeader: %d, NumElements: %d, ValidObjects: %d) <<<",
+                             addr, hasHeader ? 1 : 0, arr->NumElements, validObjectCount);
                         return addr;
                     }
                 }

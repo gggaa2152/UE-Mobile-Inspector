@@ -20,11 +20,15 @@ namespace GUI {
     // ========================================================
     static jstring JNICALL Native_GetUEInfo(JNIEnv* env, jclass clazz) {
         std::stringstream ss;
-        ss << "Engine: " << Config::UE_SO_NAME << "\n";
+        uintptr_t ueBase = Memory::GetModuleBase(Config::UE_SO_NAME);
+        ss << "Module: " << Config::UE_SO_NAME << " (Base: 0x" << std::hex << ueBase << ")\n";
+        
         if (UE::CoreManager::Get().IsInitialized()) {
-            ss << "Status: Ready (Objects: " << UE::CoreManager::Get().GetObjectCount() << ")\n";
-            ss << "GNames: 0x" << std::hex << UE::CoreManager::Get().GetGNamesAddress() << "\n";
-            ss << "GUObjectArray: 0x" << std::hex << UE::CoreManager::Get().GetGUObjectArrayAddress();
+            ss << "Status: Ready | Total Objects: " << std::dec << UE::CoreManager::Get().GetObjectCount() << "\n";
+            ss << "GNames: 0x" << std::hex << UE::CoreManager::Get().GetGNamesAddress() 
+               << " (RVA: 0x" << (UE::CoreManager::Get().GetGNamesAddress() - ueBase) << ")\n";
+            ss << "GUObjectArray: 0x" << std::hex << UE::CoreManager::Get().GetGUObjectArrayAddress()
+               << " (RVA: 0x" << (UE::CoreManager::Get().GetGUObjectArrayAddress() - ueBase) << ")";
         } else {
             static std::atomic<bool> s_InitTriggered(false);
             if (!s_InitTriggered.exchange(true)) {
@@ -32,21 +36,19 @@ namespace GUI {
                     UE::CoreManager::Get().Initialize();
                 }).detach();
             }
-            ss << "Status: Background scanning in progress...\n";
-            ss << "Click [🔍 搜索] to refresh engine state";
+            ss << "Status: " << (ueBase ? "Scanning Memory..." : "Waiting for libUE4.so...") << "\n";
+            ss << "GNames: 0x" << std::hex << UE::CoreManager::Get().GetGNamesAddress() 
+               << " | GUObjectArray: 0x" << UE::CoreManager::Get().GetGUObjectArrayAddress();
         }
         return env->NewStringUTF(ss.str().c_str());
     }
 
     static jstring JNICALL Native_GetObjectsList(JNIEnv* env, jclass clazz, jstring queryStr) {
+        uintptr_t ueBase = Memory::GetModuleBase(Config::UE_SO_NAME);
+
         if (!UE::CoreManager::Get().IsInitialized()) {
-            static std::atomic<bool> s_InitTriggered(false);
-            if (!s_InitTriggered.exchange(true)) {
-                std::thread([]() {
-                    UE::CoreManager::Get().Initialize();
-                }).detach();
-            }
-            return env->NewStringUTF("Background memory scanning in progress...\nPlease wait a few seconds and click [🔍 搜索] again.");
+            // Trigger initialize pass
+            UE::CoreManager::Get().Initialize();
         }
 
         const char* q = queryStr ? env->GetStringUTFChars(queryStr, nullptr) : "";
@@ -57,6 +59,22 @@ namespace GUI {
         int count = 0;
         size_t total = UE::CoreManager::Get().GetObjectCount();
 
+        if (total == 0) {
+            ss << "=== Diagnostic Information ===\n";
+            ss << "Target Module: " << Config::UE_SO_NAME << "\n";
+            ss << "Base Address: 0x" << std::hex << ueBase << "\n";
+            auto segments = Memory::GetModuleSegments(Config::UE_SO_NAME);
+            ss << "Mapped Segments: " << std::dec << segments.size() << "\n";
+            for (size_t i = 0; i < std::min(segments.size(), (size_t)4); i++) {
+                ss << "  [" << i << "] 0x" << std::hex << segments[i].start << " - 0x" << segments[i].end 
+                   << " (" << (segments[i].isReadable ? "r" : "-") << (segments[i].isWritable ? "w" : "-") << (segments[i].isExecutable ? "x" : "-") << ")\n";
+            }
+            ss << "GNames Addr: 0x" << std::hex << UE::CoreManager::Get().GetGNamesAddress() << "\n";
+            ss << "GUObjectArray Addr: 0x" << std::hex << UE::CoreManager::Get().GetGUObjectArrayAddress() << "\n\n";
+            ss << "Status: Scanning active memory pool. Please wait 2 seconds and tap [🔍 搜索] again.";
+            return env->NewStringUTF(ss.str().c_str());
+        }
+
         for (size_t i = 0; i < total && count < 50; i++) {
             UE::UObject* obj = UE::CoreManager::Get().GetObjectByIndex(i);
             if (obj && Memory::IsValidPtr(obj)) {
@@ -65,14 +83,14 @@ namespace GUI {
                                         ? obj->ClassPrivate->GetName() : "None";
                 
                 if (filter.empty() || name.find(filter) != std::string::npos || className.find(filter) != std::string::npos) {
-                    ss << "[" << count + 1 << "] " << name << " (" << className << ") @ 0x" << std::hex << (uintptr_t)obj << "\n";
+                    ss << "[" << std::dec << count + 1 << "] " << name << " (" << className << ") @ 0x" << std::hex << (uintptr_t)obj << "\n";
                     count++;
                 }
             }
         }
 
         if (count == 0) {
-            ss << "No matching UObjects found in memory (Total in Pool: " << total << ").";
+            ss << "No matching UObjects found for filter: '" << filter << "' (Total in Pool: " << total << ").";
         } else {
             ss << "\n... Showing " << count << " objects (Total in GObjects: " << total << ")";
         }
