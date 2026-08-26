@@ -121,6 +121,8 @@ namespace UE {
         uintptr_t GetGNamesAddress() const { return GNamesAddr; }
         uintptr_t GetProcessEventAddress() const { return ProcessEventAddr; }
 
+        void ForceApplyOffsets(uintptr_t gnamesOffset, uintptr_t guobjectOffset);
+
         int32_t GetObjectCount() const;
         UObject* GetObjectByIndex(int32_t Index) const;
 

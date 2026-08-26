@@ -21,6 +21,8 @@ namespace Config {
     // Engine Offsets & Compatibility
     inline int EngineVersionMajor = 4; // 4 or 5
     inline int EngineVersionMinor = 27;
+    inline uintptr_t GNamesOffset = 0x7E3A180;
+    inline uintptr_t GUObjectArrayOffset = 0x7E992C0;
 
     // Process & Memory Paths
     inline const char* UE_SO_NAME = "libUE4.so"; // or libUnreal.so / libUE5.so

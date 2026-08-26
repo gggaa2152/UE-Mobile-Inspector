@@ -181,29 +181,43 @@ namespace UE {
         // Pattern 1: FNamePool (UE4.23 - UE5.x)
         GNamesAddr = Memory::FindPattern(Config::UE_SO_NAME, "\x00\x00\x00\x00\x00\x00\x00\x00\x10\x00\x00\x00", "????????xxxx");
         if (!GNamesAddr) {
-            // Fallback heuristics: Find exported symbol or relative offset
-            GNamesAddr = ueBase + 0x7E3A180; // Placeholder offset (auto adapted in runtime)
+            // Fallback to Config offset
+            GNamesAddr = ueBase + Config::GNamesOffset;
         }
 
         // Pattern 2: GUObjectArray
         GUObjectArrayAddr = Memory::FindPattern(Config::UE_SO_NAME, "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x04\x00\x00", "????????xxxx");
         if (!GUObjectArrayAddr) {
-            GUObjectArrayAddr = ueBase + 0x7E992C0; // Placeholder offset
+            // Fallback to Config offset
+            GUObjectArrayAddr = ueBase + Config::GUObjectArrayOffset;
         }
 
         return (GUObjectArrayAddr != 0);
     }
 
+    void CoreManager::ForceApplyOffsets(uintptr_t gnamesOffset, uintptr_t guobjectOffset) {
+        Config::GNamesOffset = gnamesOffset;
+        Config::GUObjectArrayOffset = guobjectOffset;
+        
+        uintptr_t ueBase = Memory::GetModuleBase(Config::UE_SO_NAME);
+        if (ueBase) {
+            GNamesAddr = ueBase + gnamesOffset;
+            GUObjectArrayAddr = ueBase + guobjectOffset;
+            LOGI("Forced new offsets: GNames=0x%lx, GUObjectArray=0x%lx", GNamesAddr, GUObjectArrayAddr);
+        }
+    }
+
     int32_t CoreManager::GetObjectCount() const {
         if (!GUObjectArrayAddr) return 0;
-        TUObjectArray* array = reinterpret_cast<TUObjectArray*>(GUObjectArrayAddr);
+        // UE4.25+ FUObjectArray has a 0x10 byte header before the chunked array
+        TUObjectArray* array = reinterpret_cast<TUObjectArray*>(GUObjectArrayAddr + 0x10);
         if (!Memory::IsValidPtr(array)) return 0;
         return array->NumElements;
     }
 
     UObject* CoreManager::GetObjectByIndex(int32_t Index) const {
         if (!GUObjectArrayAddr || Index < 0) return nullptr;
-        TUObjectArray* array = reinterpret_cast<TUObjectArray*>(GUObjectArrayAddr);
+        TUObjectArray* array = reinterpret_cast<TUObjectArray*>(GUObjectArrayAddr + 0x10);
         if (!Memory::IsValidPtr(array) || Index >= array->NumElements) return nullptr;
 
         const int32_t ElementsPerChunk = 65536; // 64K objects per chunk
