@@ -247,24 +247,26 @@ namespace UE {
         static const char* kKnownKeywords[] = {
             "None", "ByteProperty", "IntProperty", "BoolProperty",
             "FloatProperty", "ObjectProperty", "NameProperty",
-            "StructProperty", "ArrayProperty", "Object", "Class", "Function"
+            "StructProperty", "ArrayProperty", "Object", "Class", "Function",
+            "Actor", "PlayerController", "Character", "Pawn", "Engine"
         };
 
         uintptr_t ueBase = Memory::GetModuleBase(moduleName);
         
         // 1. Fast Delta Force CN RVA range scan (Page-aligned, 50ms)
         if (ueBase) {
-            uintptr_t searchStart = ueBase + 0x14000000;
-            uintptr_t searchEnd = ueBase + 0x24000000;
+            uintptr_t searchStart = ueBase + 0x10000000;
+            uintptr_t searchEnd = ueBase + 0x30000000;
             for (uintptr_t addr = searchStart; addr < searchEnd; addr += 0x1000) {
                 if (!Memory::IsValidPtr(reinterpret_cast<void*>(addr))) continue;
-                for (int blockOffset : {0x38, 0x10, 0x00, 0x08, 0x18}) {
+                for (int blockOffset : {0x38, 0x10, 0x00, 0x08, 0x18, 0x20}) {
                     uintptr_t* blocks = reinterpret_cast<uintptr_t*>(addr + blockOffset);
                     if (!Memory::IsValidPtr(blocks) || !Memory::IsValidPtr(&blocks[0])) continue;
                     uintptr_t block0 = blocks[0];
                     if (!Memory::IsValidPtr(reinterpret_cast<void*>(block0))) continue;
-                    for (int entryOffset : {0, 2, 4, 8}) {
-                        uintptr_t entry = block0 + entryOffset;
+                    
+                    for (int testIdx : {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 16, 20, 24, 32, 50, 64, 100}) {
+                        uintptr_t entry = block0 + testIdx * 2;
                         if (!Memory::IsValidPtr(reinterpret_cast<void*>(entry))) continue;
                         std::string parsed = ExtractDecryptedFName(reinterpret_cast<const uint8_t*>(entry));
                         if (!parsed.empty()) {
@@ -286,13 +288,13 @@ namespace UE {
         for (const auto& seg : segments) {
             if (!seg.isReadable || !seg.isWritable) continue;
             for (uintptr_t addr = seg.start; addr + 0x40 < seg.end; addr += 8) {
-                for (int blockOffset : {0x38, 0x10, 0x08, 0x00, 0x18}) {
+                for (int blockOffset : {0x38, 0x10, 0x08, 0x00, 0x18, 0x20}) {
                     uintptr_t* blocks = reinterpret_cast<uintptr_t*>(addr + blockOffset);
                     if (!Memory::IsValidPtr(blocks) || !Memory::IsValidPtr(&blocks[0])) continue;
                     uintptr_t block0 = blocks[0];
                     if (!Memory::IsValidPtr(reinterpret_cast<void*>(block0))) continue;
-                    for (int entryOffset : {0, 2, 4, 8}) {
-                        uintptr_t entry = block0 + entryOffset;
+                    for (int testIdx : {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 16, 20, 32, 50}) {
+                        uintptr_t entry = block0 + testIdx * 2;
                         if (!Memory::IsValidPtr(reinterpret_cast<void*>(entry))) continue;
                         std::string parsed = ExtractDecryptedFName(reinterpret_cast<const uint8_t*>(entry));
                         if (!parsed.empty()) {
@@ -325,10 +327,8 @@ namespace UE {
                     TUObjectArray* arr = reinterpret_cast<TUObjectArray*>(testArrayAddr);
                     if (!Memory::IsValidPtr(arr)) continue;
                     
-                    if (arr->NumElements < 100 || arr->NumElements > 3000000) continue;
-                    if (arr->MaxElements < arr->NumElements || arr->MaxElements > 5000000) continue;
-                    if (arr->NumChunks < 1 || arr->NumChunks > 1000) continue;
-                    if (arr->MaxChunks < arr->NumChunks || arr->MaxChunks > 2000) continue;
+                    if (arr->NumElements < 50 || arr->NumElements > 5000000) continue;
+                    if (arr->MaxElements < arr->NumElements || arr->MaxElements > 10000000) continue;
                     
                     if (!Memory::IsValidPtr(arr->Objects) || !Memory::IsValidPtr(&arr->Objects[0])) continue;
                     FUObjectItem* chunk0 = arr->Objects[0];

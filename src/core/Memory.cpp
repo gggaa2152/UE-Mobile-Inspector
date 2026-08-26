@@ -60,14 +60,30 @@ namespace Memory {
         if (!fp) return segments;
 
         char line[512];
+        uintptr_t moduleBase = 0;
+        uintptr_t lastModuleEnd = 0;
+
         while (fgets(line, sizeof(line), fp)) {
-            if (!moduleName || strstr(line, moduleName)) {
-                unsigned long long segStart = 0, segEnd = 0;
-                char perms[8] = {0};
-                if (sscanf(line, "%llx-%llx %7s", &segStart, &segEnd, perms) == 3) {
+            unsigned long long segStart = 0, segEnd = 0;
+            char perms[8] = {0};
+            if (sscanf(line, "%llx-%llx %7s", &segStart, &segEnd, perms) == 3) {
+                uintptr_t start = static_cast<uintptr_t>(segStart);
+                uintptr_t end = static_cast<uintptr_t>(segEnd);
+                bool isModuleLine = moduleName ? (strstr(line, moduleName) != nullptr) : true;
+
+                // Also include contiguous anonymous .bss regions immediately following the module
+                if (isModuleLine) {
+                    if (moduleBase == 0) moduleBase = start;
+                    lastModuleEnd = end;
+                } else if (moduleBase != 0 && start == lastModuleEnd && (start - moduleBase) < 0x40000000) {
+                    isModuleLine = true;
+                    lastModuleEnd = end;
+                }
+
+                if (isModuleLine) {
                     SegmentInfo seg;
-                    seg.start = static_cast<uintptr_t>(segStart);
-                    seg.end = static_cast<uintptr_t>(segEnd);
+                    seg.start = start;
+                    seg.end = end;
                     seg.isReadable = (perms[0] == 'r');
                     seg.isWritable = (perms[1] == 'w');
                     seg.isExecutable = (perms[2] == 'x');
