@@ -34,14 +34,20 @@ namespace UE {
 
         uint32_t block = ComparisonIndex >> 16;
         uint32_t offset = ComparisonIndex & 65535;
+        if (block >= 1024) return "Name_" + std::to_string(ComparisonIndex);
 
         for (int blockOffset : {0x10, 0x08, 0x00, 0x18}) {
             uintptr_t* blocks = reinterpret_cast<uintptr_t*>(gnames + blockOffset);
-            if (!Memory::IsValidPtr(blocks) || !Memory::IsValidPtr(reinterpret_cast<void*>(blocks[block]))) {
+            if (!Memory::IsValidPtr(blocks) || !Memory::IsValidPtr(&blocks[block])) {
                 continue;
             }
 
-            uintptr_t entry = blocks[block] + offset * 2;
+            uintptr_t blockPtr = blocks[block];
+            if (!Memory::IsValidPtr(reinterpret_cast<void*>(blockPtr))) {
+                continue;
+            }
+
+            uintptr_t entry = blockPtr + offset * 2;
             if (!Memory::IsValidPtr(reinterpret_cast<void*>(entry))) {
                 continue;
             }

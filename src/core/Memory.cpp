@@ -124,22 +124,11 @@ namespace Memory {
             return false;
         }
 
-        static int pipefd[2] = {-1, -1};
-        static bool pipeFailed = false;
-        if (pipefd[0] == -1 && !pipeFailed) {
-            if (pipe(pipefd) < 0) {
-                pipeFailed = true;
-                return true;
-            }
-        }
-        if (pipeFailed) return true;
-
-        ssize_t written = write(pipefd[1], ptr, 1);
-        if (written == 1) {
-            char dummy;
-            read(pipefd[0], &dummy, 1);
-            return true;
-        }
-        return false;
+        uint8_t buf[1];
+        struct iovec local = { buf, sizeof(buf) };
+        struct iovec remote = { const_cast<void*>(ptr), sizeof(buf) };
+        
+        static pid_t myPid = getpid();
+        return process_vm_readv(myPid, &local, 1, &remote, 1, 0) == 1;
     }
 }

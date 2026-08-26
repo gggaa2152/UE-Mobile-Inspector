@@ -43,7 +43,8 @@ namespace GUI {
             UE::UObject* obj = UE::CoreManager::Get().GetObjectByIndex(i);
             if (obj && Memory::IsValidPtr(obj)) {
                 std::string name = obj->GetName();
-                std::string className = obj->ClassPrivate ? obj->ClassPrivate->GetName() : "None";
+                std::string className = (obj->ClassPrivate && Memory::IsValidPtr(obj->ClassPrivate)) 
+                                        ? obj->ClassPrivate->GetName() : "None";
                 
                 if (filter.empty() || name.find(filter) != std::string::npos || className.find(filter) != std::string::npos) {
                     ss << "[" << count + 1 << "] " << name << " (" << className << ") @ 0x" << std::hex << (uintptr_t)obj << "\n";
