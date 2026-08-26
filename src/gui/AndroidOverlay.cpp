@@ -133,8 +133,7 @@ namespace GUI {
             for (auto* prop : properties) {
                 if (!prop || !Memory::IsValidPtr(prop)) continue;
                 std::string pName = prop->GetName();
-                std::string pType = (prop->ClassPrivate && Memory::IsValidPtr(prop->ClassPrivate)) 
-                                  ? prop->ClassPrivate->GetName() : "Property";
+                std::string pType = prop->GetTypeName();
                 int32_t offset = prop->Offset_Internal;
                 
                 if (pCount > 0) ss << ",";
@@ -259,7 +258,7 @@ namespace GUI {
 
         gSavedVM = gJavaVM;
 
-        std::thread([]() {
+        std::thread([this]() {
             JNIEnv* env = nullptr;
             if (gSavedVM->AttachCurrentThread(&env, nullptr) != JNI_OK || !env) {
                 LOGE("[AndroidOverlay] Failed to attach current thread to JVM");
