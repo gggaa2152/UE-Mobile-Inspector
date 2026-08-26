@@ -2,6 +2,7 @@
 #include "../config.hpp"
 #include <algorithm>
 #include <cstring>
+#include <dlfcn.h>
 #include <android/log.h>
 
 #define LOG_TAG "UE-Mobile-Inspector"

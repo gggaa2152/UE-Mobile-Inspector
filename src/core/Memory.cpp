@@ -51,6 +51,9 @@ namespace Memory {
             }
         }
         fclose(fp);
+        return (endAddr > startAddr) ? (endAddr - startAddr) : 0;
+    }
+
     std::vector<SegmentInfo> GetModuleSegments(const char* moduleName) {
         std::vector<SegmentInfo> segments;
         FILE* fp = fopen("/proc/self/maps", "rt");
