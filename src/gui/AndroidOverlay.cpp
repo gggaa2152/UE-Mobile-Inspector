@@ -19,18 +19,36 @@ namespace GUI {
     // JNI Native Implementations for FloatingMenu UI
     // ========================================================
     static jstring JNICALL Native_GetUEInfo(JNIEnv* env, jclass clazz) {
-        if (!UE::CoreManager::Get().IsInitialized()) {
-            UE::CoreManager::Get().Initialize();
-        }
         std::stringstream ss;
         ss << "Engine: " << Config::UE_SO_NAME << "\n";
-        ss << "GObjects Count: " << UE::CoreManager::Get().GetObjectCount() << "\n";
-        ss << "GNames Address: 0x" << std::hex << UE::CoreManager::Get().GetGNamesAddress() << "\n";
-        ss << "GUObjectArray: 0x" << std::hex << UE::CoreManager::Get().GetGUObjectArrayAddress();
+        if (UE::CoreManager::Get().IsInitialized()) {
+            ss << "Status: Ready (Objects: " << UE::CoreManager::Get().GetObjectCount() << ")\n";
+            ss << "GNames: 0x" << std::hex << UE::CoreManager::Get().GetGNamesAddress() << "\n";
+            ss << "GUObjectArray: 0x" << std::hex << UE::CoreManager::Get().GetGUObjectArrayAddress();
+        } else {
+            static std::atomic<bool> s_InitTriggered(false);
+            if (!s_InitTriggered.exchange(true)) {
+                std::thread([]() {
+                    UE::CoreManager::Get().Initialize();
+                }).detach();
+            }
+            ss << "Status: Background scanning in progress...\n";
+            ss << "Click [🔍 搜索] to refresh engine state";
+        }
         return env->NewStringUTF(ss.str().c_str());
     }
 
     static jstring JNICALL Native_GetObjectsList(JNIEnv* env, jclass clazz, jstring queryStr) {
+        if (!UE::CoreManager::Get().IsInitialized()) {
+            static std::atomic<bool> s_InitTriggered(false);
+            if (!s_InitTriggered.exchange(true)) {
+                std::thread([]() {
+                    UE::CoreManager::Get().Initialize();
+                }).detach();
+            }
+            return env->NewStringUTF("Background memory scanning in progress...\nPlease wait a few seconds and click [🔍 搜索] again.");
+        }
+
         const char* q = queryStr ? env->GetStringUTFChars(queryStr, nullptr) : "";
         std::string filter = q ? q : "";
         if (queryStr && q) env->ReleaseStringUTFChars(queryStr, q);
@@ -54,7 +72,7 @@ namespace GUI {
         }
 
         if (count == 0) {
-            ss << "No matching UObjects found in memory (Total: " << total << ").";
+            ss << "No matching UObjects found in memory (Total in Pool: " << total << ").";
         } else {
             ss << "\n... Showing " << count << " objects (Total in GObjects: " << total << ")";
         }
