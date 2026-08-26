@@ -185,11 +185,7 @@ public class FloatingMenu {
         outputText.setTextSize(12);
         outputText.setTypeface(android.graphics.Typeface.MONOSPACE);
         
-        try {
-            outputText.setText(nativeGetObjectsList(""));
-        } catch (Throwable ignored) {
-            outputText.setText("Click [搜索] to scan running UObject hierarchy...");
-        }
+        outputText.setText("Click [🔍 搜索] to scan running UObject hierarchy...");
 
         scrollView.addView(outputText);
         root.addView(scrollView);

@@ -352,12 +352,16 @@ namespace UE {
         int32_t ChunkIndex = Index / ElementsPerChunk;
         int32_t InChunkIndex = Index % ElementsPerChunk;
 
-        if (!Memory::IsValidPtr(array->Objects) || !Memory::IsValidPtr(array->Objects[ChunkIndex])) {
+        if (!Memory::IsValidPtr(array->Objects) || !Memory::IsValidPtr(&array->Objects[ChunkIndex])) {
             return nullptr;
         }
 
-        FUObjectItem& item = array->Objects[ChunkIndex][InChunkIndex];
-        return item.Object;
+        FUObjectItem* chunk = array->Objects[ChunkIndex];
+        if (!Memory::IsValidPtr(chunk) || !Memory::IsValidPtr(&chunk[InChunkIndex])) {
+            return nullptr;
+        }
+
+        return chunk[InChunkIndex].Object;
     }
 
     std::vector<UClass*> CoreManager::GetAllClasses() {
