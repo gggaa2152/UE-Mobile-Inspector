@@ -113,7 +113,7 @@ public class FloatingMenu {
                     // 2. Initialize WebView
                     webView = new WebView(activity);
                     webView.setBackgroundColor(Color.TRANSPARENT);
-                    webView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+                    webView.setLayerType(View.LAYER_TYPE_SOFTWARE, null);
 
                     WebSettings settings = webView.getSettings();
                     settings.setJavaScriptEnabled(true);
@@ -153,7 +153,6 @@ public class FloatingMenu {
                     floatingBtn.setOnTouchListener(new View.OnTouchListener() {
                         private float initialX, initialY, initialTouchX, initialTouchY;
                         private boolean isDragging = false;
-                        private long touchStartTime = 0;
 
                         @Override
                         public boolean onTouch(View v, MotionEvent event) {
@@ -164,30 +163,33 @@ public class FloatingMenu {
                                     initialTouchX = event.getRawX();
                                     initialTouchY = event.getRawY();
                                     isDragging = false;
-                                    touchStartTime = System.currentTimeMillis();
-                                    return true;
+                                    return false; // let onClick handle it if it's a tap
 
                                 case MotionEvent.ACTION_MOVE:
                                     float dx = event.getRawX() - initialTouchX;
                                     float dy = event.getRawY() - initialTouchY;
-                                    if (Math.abs(dx) > 15 || Math.abs(dy) > 15) isDragging = true;
-                                    if (isDragging) {
+                                    if (Math.abs(dx) > 30 || Math.abs(dy) > 30) {
+                                        isDragging = true;
                                         btnParams.leftMargin = (int) (initialX + dx);
                                         btnParams.topMargin = (int) (initialY + dy);
                                         v.setLayoutParams(btnParams);
                                     }
-                                    return true;
+                                    return isDragging;
 
                                 case MotionEvent.ACTION_UP:
-                                    long duration = System.currentTimeMillis() - touchStartTime;
-                                    if (!isDragging || duration < 150) {
-                                        if (webContainer != null) {
-                                            webContainer.setVisibility(webContainer.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
-                                        }
-                                    }
-                                    return true;
+                                    if (isDragging) return true; // consume drag release
+                                    return false; // let onClick handle it
                             }
                             return false;
+                        }
+                    });
+
+                    floatingBtn.setOnClickListener(new View.OnClickListener() {
+                        @Override
+                        public void onClick(View v) {
+                            if (webContainer != null) {
+                                webContainer.setVisibility(webContainer.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
+                            }
                         }
                     });
 
