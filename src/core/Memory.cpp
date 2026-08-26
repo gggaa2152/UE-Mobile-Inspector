@@ -51,7 +51,41 @@ namespace Memory {
             }
         }
         fclose(fp);
-        return (endAddr > startAddr) ? (endAddr - startAddr) : 0;
+    std::vector<SegmentInfo> GetModuleSegments(const char* moduleName) {
+        std::vector<SegmentInfo> segments;
+        FILE* fp = fopen("/proc/self/maps", "rt");
+        if (!fp) return segments;
+
+        char line[512];
+        while (fgets(line, sizeof(line), fp)) {
+            if (!moduleName || strstr(line, moduleName)) {
+                unsigned long long segStart = 0, segEnd = 0;
+                char perms[8] = {0};
+                if (sscanf(line, "%llx-%llx %7s", &segStart, &segEnd, perms) == 3) {
+                    SegmentInfo seg;
+                    seg.start = static_cast<uintptr_t>(segStart);
+                    seg.end = static_cast<uintptr_t>(segEnd);
+                    seg.isReadable = (perms[0] == 'r');
+                    seg.isWritable = (perms[1] == 'w');
+                    seg.isExecutable = (perms[2] == 'x');
+                    segments.push_back(seg);
+                }
+            }
+        }
+        fclose(fp);
+        return segments;
+    }
+
+    bool IsAddressInExecutable(uintptr_t addr, const char* moduleName) {
+        if (addr < 0x10000) return false;
+        static auto segments = GetModuleSegments(moduleName);
+        if (segments.empty()) segments = GetModuleSegments(moduleName);
+        for (const auto& seg : segments) {
+            if (seg.isExecutable && addr >= seg.start && addr < seg.end) {
+                return true;
+            }
+        }
+        return false;
     }
 
     uintptr_t FindPattern(uintptr_t start, size_t length, const char* pattern, const char* mask) {

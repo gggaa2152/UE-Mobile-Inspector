@@ -31,31 +31,46 @@ namespace UE {
         uintptr_t gnames = CoreManager::Get().GetGNamesAddress();
         if (!gnames) return "None";
 
-        // UE4.23+ FNamePool / FNameEntryAllocator layout
         uint32_t block = ComparisonIndex >> 16;
         uint32_t offset = ComparisonIndex & 65535;
 
-        uintptr_t* blocks = reinterpret_cast<uintptr_t*>(gnames + 0x10);
-        if (!Memory::IsValidPtr(blocks) || !Memory::IsValidPtr(reinterpret_cast<void*>(blocks[block]))) {
-            return "Name_" + std::to_string(ComparisonIndex);
-        }
-
-        uintptr_t entry = blocks[block] + offset * 2;
-        if (!Memory::IsValidPtr(reinterpret_cast<void*>(entry))) {
-            return "Name_" + std::to_string(ComparisonIndex);
-        }
-
-        uint16_t header = *reinterpret_cast<uint16_t*>(entry);
-        uint32_t len = header >> 6;
-        if (len > 0 && len < 1024) {
-            char buf[1024] = {0};
-            memcpy(buf, reinterpret_cast<const void*>(entry + 2), len);
-            buf[len] = '\0';
-            std::string result(buf);
-            if (Number > 0) {
-                result += "_" + std::to_string(Number - 1);
+        for (int blockOffset : {0x10, 0x08, 0x00, 0x18}) {
+            uintptr_t* blocks = reinterpret_cast<uintptr_t*>(gnames + blockOffset);
+            if (!Memory::IsValidPtr(blocks) || !Memory::IsValidPtr(reinterpret_cast<void*>(blocks[block]))) {
+                continue;
             }
-            return result;
+
+            uintptr_t entry = blocks[block] + offset * 2;
+            if (!Memory::IsValidPtr(reinterpret_cast<void*>(entry))) {
+                continue;
+            }
+
+            uint16_t header = *reinterpret_cast<uint16_t*>(entry);
+            uint32_t len = header >> 6;
+            if (len == 0 || len >= 1024) len = header >> 1; // Fallback for UE5 / alternate layout
+
+            if (len > 0 && len < 1024) {
+                char buf[1024] = {0};
+                memcpy(buf, reinterpret_cast<const void*>(entry + 2), len);
+                buf[len] = '\0';
+                
+                // Check if result contains printable characters
+                bool isPrintable = true;
+                for (size_t i = 0; i < len; ++i) {
+                    if (buf[i] < 32 || buf[i] > 126) {
+                        isPrintable = false;
+                        break;
+                    }
+                }
+
+                if (isPrintable) {
+                    std::string result(buf);
+                    if (Number > 0) {
+                        result += "_" + std::to_string(Number - 1);
+                    }
+                    return result;
+                }
+            }
         }
 
         return "Name_" + std::to_string(ComparisonIndex);
@@ -170,6 +185,95 @@ namespace UE {
         return true;
     }
 
+    static uintptr_t ScanGNamesHeuristic(const char* moduleName) {
+        LOGI("[AutoScanner] Initiating Heuristic Scan for GNames / FNamePool...");
+        auto segments = Memory::GetModuleSegments(moduleName);
+        
+        for (const auto& seg : segments) {
+            if (!seg.isReadable) continue;
+            
+            for (uintptr_t addr = seg.start; addr + 0x40 < seg.end; addr += 8) {
+                for (int blockOffset : {0x10, 0x08, 0x00, 0x18}) {
+                    uintptr_t* blocks = reinterpret_cast<uintptr_t*>(addr + blockOffset);
+                    if (!Memory::IsValidPtr(blocks)) continue;
+                    
+                    uintptr_t block0 = blocks[0];
+                    if (!Memory::IsValidPtr(reinterpret_cast<void*>(block0))) continue;
+                    
+                    for (int entryOffset : {0, 2, 4}) {
+                        uintptr_t entry = block0 + entryOffset;
+                        if (!Memory::IsValidPtr(reinterpret_cast<void*>(entry))) continue;
+                        
+                        const char* str = reinterpret_cast<const char*>(entry + 2);
+                        if (Memory::IsValidPtr(str) && (strncmp(str, "None", 4) == 0 || strncmp(str, "ByteProperty", 12) == 0)) {
+                            LOGI("[AutoScanner] >>> SUCCESS: Discovered GNames/FNamePool at 0x%lx (blockOffset: 0x%x, str: %s) <<<",
+                                 addr, blockOffset, str);
+                            return addr;
+                        }
+                        
+                        const char* strDirect = reinterpret_cast<const char*>(entry);
+                        if (Memory::IsValidPtr(strDirect) && (strncmp(strDirect, "None", 4) == 0 || strncmp(strDirect, "ByteProperty", 12) == 0)) {
+                            LOGI("[AutoScanner] >>> SUCCESS: Discovered GNames/FNamePool at 0x%lx (direct str: %s) <<<", addr, strDirect);
+                            return addr;
+                        }
+                    }
+                }
+            }
+        }
+        LOGI("[AutoScanner] Heuristic GNames scan did not find a match, using fallback.");
+        return 0;
+    }
+
+    static uintptr_t ScanGUObjectArrayHeuristic(const char* moduleName, bool& outHasGCHeader) {
+        LOGI("[AutoScanner] Initiating Heuristic Scan for GUObjectArray...");
+        auto segments = Memory::GetModuleSegments(moduleName);
+        
+        for (const auto& seg : segments) {
+            if (!seg.isReadable || !seg.isWritable) continue;
+            
+            for (uintptr_t addr = seg.start; addr + 0x40 < seg.end; addr += 8) {
+                for (bool hasHeader : {true, false}) {
+                    uintptr_t testArrayAddr = hasHeader ? (addr + 0x10) : addr;
+                    TUObjectArray* arr = reinterpret_cast<TUObjectArray*>(testArrayAddr);
+                    
+                    if (arr->NumElements < 200 || arr->NumElements > 2000000) continue;
+                    if (arr->MaxElements < arr->NumElements || arr->MaxElements > 5000000) continue;
+                    if (arr->NumChunks < 1 || arr->NumChunks > 1000) continue;
+                    if (arr->MaxChunks < arr->NumChunks || arr->MaxChunks > 2000) continue;
+                    
+                    if (!Memory::IsValidPtr(arr->Objects)) continue;
+                    if (!Memory::IsValidPtr(arr->Objects[0])) continue;
+                    
+                    int validObjectCount = 0;
+                    int validVTableCount = 0;
+                    
+                    for (int i = 0; i < std::min(arr->NumElements, 100); ++i) {
+                        FUObjectItem* item = &arr->Objects[0][i];
+                        if (!Memory::IsValidPtr(item)) break;
+                        
+                        UObject* obj = item->Object;
+                        if (Memory::IsValidPtr(obj)) {
+                            validObjectCount++;
+                            void** vtbl = reinterpret_cast<void**>(obj->VTable);
+                            if (Memory::IsValidPtr(vtbl) && Memory::IsAddressInExecutable(reinterpret_cast<uintptr_t>(vtbl), moduleName)) {
+                                validVTableCount++;
+                            }
+                        }
+                    }
+                    
+                    if (validObjectCount >= 10 && validVTableCount >= 5) {
+                        outHasGCHeader = hasHeader;
+                        LOGI("[AutoScanner] >>> SUCCESS: Discovered GUObjectArray at 0x%lx (hasGCHeader: %d, NumElements: %d, ValidVTables: %d) <<<",
+                             addr, hasHeader ? 1 : 0, arr->NumElements, validVTableCount);
+                        return addr;
+                    }
+                }
+            }
+        }
+        LOGI("[AutoScanner] Heuristic GUObjectArray scan did not find a match, using fallback.");
+        return 0;
+    }
+
     bool CoreManager::ResolveOffsets() {
         uintptr_t ueBase = Memory::GetModuleBase(Config::UE_SO_NAME);
         if (!ueBase) {
@@ -177,21 +281,37 @@ namespace UE {
             return false;
         }
 
-        // AOB Scanner for GUObjectArray & GNames / FNamePool
-        // Pattern 1: FNamePool (UE4.23 - UE5.x)
-        GNamesAddr = Memory::FindPattern(Config::UE_SO_NAME, "\x00\x00\x00\x00\x00\x00\x00\x00\x10\x00\x00\x00", "????????xxxx");
+        // 1. Dynamic Heuristic Auto-Scanner
+        GNamesAddr = ScanGNamesHeuristic(Config::UE_SO_NAME);
+        GUObjectArrayAddr = ScanGUObjectArrayHeuristic(Config::UE_SO_NAME, bArrayHasGCHeader);
+
+        // 2. Fallback to exported symbols
         if (!GNamesAddr) {
-            // Fallback to Config offset
-            GNamesAddr = ueBase + Config::GNamesOffset;
+            void* handle = dlopen(Config::UE_SO_NAME, RTLD_NOLOAD);
+            if (handle) {
+                GNamesAddr = reinterpret_cast<uintptr_t>(dlsym(handle, "GNames"));
+                if (!GNamesAddr) GNamesAddr = reinterpret_cast<uintptr_t>(dlsym(handle, "FNamePool"));
+            }
         }
-
-        // Pattern 2: GUObjectArray
-        GUObjectArrayAddr = Memory::FindPattern(Config::UE_SO_NAME, "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x04\x00\x00", "????????xxxx");
         if (!GUObjectArrayAddr) {
-            // Fallback to Config offset
-            GUObjectArrayAddr = ueBase + Config::GUObjectArrayOffset;
+            void* handle = dlopen(Config::UE_SO_NAME, RTLD_NOLOAD);
+            if (handle) {
+                GUObjectArrayAddr = reinterpret_cast<uintptr_t>(dlsym(handle, "GUObjectArray"));
+            }
         }
 
+        // 3. Fallback to Config offsets
+        if (!GNamesAddr) {
+            GNamesAddr = ueBase + Config::GNamesOffset;
+            LOGI("[AutoScanner] Fallback to Config GNames: 0x%lx", GNamesAddr);
+        }
+        if (!GUObjectArrayAddr) {
+            GUObjectArrayAddr = ueBase + Config::GUObjectArrayOffset;
+            LOGI("[AutoScanner] Fallback to Config GUObjectArray: 0x%lx", GUObjectArrayAddr);
+        }
+
+        LOGI("[AutoScanner] Resolved: GNames=0x%lx, GUObjectArray=0x%lx (hasGCHeader: %d)",
+             GNamesAddr, GUObjectArrayAddr, bArrayHasGCHeader ? 1 : 0);
         return (GUObjectArrayAddr != 0);
     }
 
@@ -209,15 +329,16 @@ namespace UE {
 
     int32_t CoreManager::GetObjectCount() const {
         if (!GUObjectArrayAddr) return 0;
-        // UE4.25+ FUObjectArray has a 0x10 byte header before the chunked array
-        TUObjectArray* array = reinterpret_cast<TUObjectArray*>(GUObjectArrayAddr + 0x10);
+        uintptr_t arrayAddr = bArrayHasGCHeader ? (GUObjectArrayAddr + 0x10) : GUObjectArrayAddr;
+        TUObjectArray* array = reinterpret_cast<TUObjectArray*>(arrayAddr);
         if (!Memory::IsValidPtr(array)) return 0;
         return array->NumElements;
     }
 
     UObject* CoreManager::GetObjectByIndex(int32_t Index) const {
         if (!GUObjectArrayAddr || Index < 0) return nullptr;
-        TUObjectArray* array = reinterpret_cast<TUObjectArray*>(GUObjectArrayAddr + 0x10);
+        uintptr_t arrayAddr = bArrayHasGCHeader ? (GUObjectArrayAddr + 0x10) : GUObjectArrayAddr;
+        TUObjectArray* array = reinterpret_cast<TUObjectArray*>(arrayAddr);
         if (!Memory::IsValidPtr(array) || Index >= array->NumElements) return nullptr;
 
         const int32_t ElementsPerChunk = 65536; // 64K objects per chunk

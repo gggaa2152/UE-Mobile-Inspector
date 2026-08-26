@@ -8,8 +8,18 @@
 #include <unistd.h>
 
 namespace Memory {
+    struct SegmentInfo {
+        uintptr_t start;
+        uintptr_t end;
+        bool isReadable;
+        bool isWritable;
+        bool isExecutable;
+    };
+
     uintptr_t GetModuleBase(const char* moduleName);
     size_t GetModuleSize(const char* moduleName);
+    std::vector<SegmentInfo> GetModuleSegments(const char* moduleName);
+    bool IsAddressInExecutable(uintptr_t addr, const char* moduleName = nullptr);
     
     // Pattern scanning (AOB Signature scan)
     uintptr_t FindPattern(const char* moduleName, const char* pattern, const char* mask);

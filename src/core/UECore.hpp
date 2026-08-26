@@ -138,6 +138,7 @@ namespace UE {
         uintptr_t GUObjectArrayAddr = 0;
         uintptr_t GNamesAddr = 0;
         uintptr_t ProcessEventAddr = 0;
+        bool bArrayHasGCHeader = true;
 
         bool ResolveOffsets();
     };
