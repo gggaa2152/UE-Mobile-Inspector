@@ -191,7 +191,7 @@ namespace UE {
         auto segments = Memory::GetModuleSegments(moduleName);
         
         for (const auto& seg : segments) {
-            if (!seg.isReadable) continue;
+            if (!seg.isReadable || !seg.isWritable) continue;
             
             for (uintptr_t addr = seg.start; addr + 0x40 < seg.end; addr += 8) {
                 for (int blockOffset : {0x10, 0x08, 0x00, 0x18}) {

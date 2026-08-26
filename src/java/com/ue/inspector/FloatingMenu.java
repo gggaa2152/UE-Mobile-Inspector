@@ -199,6 +199,7 @@ public class FloatingMenu {
             @Override
             public void onClick(View v) {
                 try {
+                    statusText.setText(nativeGetUEInfo());
                     String query = searchBox.getText().toString();
                     outputText.setText(nativeGetObjectsList(query));
                 } catch (Throwable t) {

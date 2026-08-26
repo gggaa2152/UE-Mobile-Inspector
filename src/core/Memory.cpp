@@ -119,20 +119,27 @@ namespace Memory {
     }
 
     bool IsValidPtr(const void* ptr) {
-        if (!ptr || reinterpret_cast<uintptr_t>(ptr) < 0x10000) {
+        uintptr_t addr = reinterpret_cast<uintptr_t>(ptr);
+        if (!ptr || addr < 0x10000 || addr > 0x7fffffffff) {
             return false;
         }
 
-        // Test pointer readability using process_vm_readv / pipe check
-        int pipefd[2];
-        if (pipe(pipefd) < 0) {
-            return true; // Fallback
+        static int pipefd[2] = {-1, -1};
+        static bool pipeFailed = false;
+        if (pipefd[0] == -1 && !pipeFailed) {
+            if (pipe(pipefd) < 0) {
+                pipeFailed = true;
+                return true;
+            }
         }
+        if (pipeFailed) return true;
 
         ssize_t written = write(pipefd[1], ptr, 1);
-        close(pipefd[0]);
-        close(pipefd[1]);
-
-        return written == 1;
+        if (written == 1) {
+            char dummy;
+            read(pipefd[0], &dummy, 1);
+            return true;
+        }
+        return false;
     }
 }

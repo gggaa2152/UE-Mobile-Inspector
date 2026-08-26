@@ -19,6 +19,9 @@ namespace GUI {
     // JNI Native Implementations for FloatingMenu UI
     // ========================================================
     static jstring JNICALL Native_GetUEInfo(JNIEnv* env, jclass clazz) {
+        if (!UE::CoreManager::Get().IsInitialized()) {
+            UE::CoreManager::Get().Initialize();
+        }
         std::stringstream ss;
         ss << "Engine: " << Config::UE_SO_NAME << "\n";
         ss << "GObjects Count: " << UE::CoreManager::Get().GetObjectCount() << "\n";
